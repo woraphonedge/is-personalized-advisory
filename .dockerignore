@@ -1,0 +1,32 @@
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv
+
+# Environment files
+.env*
+
+# IDE and editor files
+.vscode
+.idea
+
+# OS generated files
+.DS_Store
+
+# Logs
+*.log
+
+# Databases
+*.db
+*.sqlite
+
+# nextjs build
+.next
+
+# python packages
+*.egg
+*.egg-info
+*.pyc
+__pycache__/

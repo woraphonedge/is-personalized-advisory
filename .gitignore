@@ -1,0 +1,27 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+
+# production
+/build
+
+# env files
+.env*
+
+# python
+__pycache__
+.venv
+*.egg-info/
+.pyc
+.langgraph_api
+*.db
+*.sqlite
+
+#vscode
+.vscode
+.windsurf
+
+# macos
+.DS_Store
+
+# data
+*/data
