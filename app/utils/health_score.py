@@ -11,7 +11,6 @@ from .utils import read_parquet, read_sql, write_parquet
 warnings.filterwarnings("ignore")
 
 
-
 class HealthScore:
     def __init__(self, verbose=False):
         self.verbose = verbose
@@ -114,7 +113,7 @@ class HealthScore:
         df_bulk_risk['SCORE_BULK_RISK'] = -2 * df_bulk_risk['SCORE_BULK_RISK']
 
         if cal_comp:
-            df_comp_bulk_risk = df_out_sel[['PORT_ID', 'PRODUCT_ID', 'PRODUCT_DISPLAY_NAME', 'IS_BULK_RISK']]
+            df_comp_bulk_risk = df_out_sel[['PORT_ID'] + ports.prod_comp_keys + ['IS_BULK_RISK']]
             return df_bulk_risk, df_comp_bulk_risk
         else:
             return df_bulk_risk, None
@@ -124,7 +123,7 @@ class HealthScore:
         df_out_underlying = ports.df_out.merge(self.df_underlying_mapping, on='PRODUCT_ID', how='left')
 
         # Filter GOV Bond Out
-        df_out_underlying_filter = df_out_underlying[~( (df_out_underlying['PRODUCT_TYPE_DESC'] == 'Fixed Income')
+        df_out_underlying_filter = df_out_underlying[~( (df_out_underlying['PRODUCT_TYPE_DESC'] == 'Fixed Income') 
                                                         & (df_out_underlying['UNDERLYING_COMPANY'].isin(['BOT', 'MOF'])) )]
 
 
@@ -148,7 +147,7 @@ class HealthScore:
             df_comp_issuer_risk['ISSURE_RISK_GROUP'] = df_comp_issuer_risk.groupby('PORT_ID').cumcount() + 1
             df_comp_issuer_risk = df_comp_issuer_risk[['PORT_ID', 'UNDERLYING_COMPANY', 'ISSURE_RISK_GROUP']]
             df_comp_issuer_risk = df_out_underlying_filter.merge(df_comp_issuer_risk, on=['PORT_ID', 'UNDERLYING_COMPANY'], how='left')
-            df_comp_issuer_risk = df_comp_issuer_risk[['PORT_ID', 'PRODUCT_DISPLAY_NAME', 'PRODUCT_ID', 'UNDERLYING_COMPANY', 'ISSURE_RISK_GROUP']]
+            df_comp_issuer_risk = df_comp_issuer_risk[['PORT_ID'] + ports.prod_comp_keys + ['UNDERLYING_COMPANY', 'ISSURE_RISK_GROUP']]
             return df_issuer_risk, df_comp_issuer_risk
         else:
             return df_issuer_risk, None
@@ -207,27 +206,24 @@ class HealthScore:
 
             df_comp_not_monitor_product['SCORE_NON_COVER_GLOBAL_STOCK'] = (
                 ((df_comp_not_monitor_product['COVERAGE_PRDTYPE'] == 'GLOBAL_STOCK') &
-                (~df_comp_not_monitor_product['IS_COVERAGE']))
+                 (~df_comp_not_monitor_product['IS_COVERAGE']))
                 * df_comp_not_monitor_product['SCORE_NON_COVER_GLOBAL_STOCK']
             )
             df_comp_not_monitor_product['SCORE_NON_COVER_LOCAL_STOCK'] = (
-                ((df_comp_not_monitor_product['COVERAGE_PRDTYPE'] == 'LOCAL_STOCK') &
-                (~df_comp_not_monitor_product['IS_COVERAGE']))
+                ((df_comp_not_monitor_product['COVERAGE_PRDTYPE'] == 'LOCAL_STOCK') & 
+                 (~df_comp_not_monitor_product['IS_COVERAGE']))
                 * df_comp_not_monitor_product['SCORE_NON_COVER_LOCAL_STOCK']
             )
             df_comp_not_monitor_product['SCORE_NON_COVER_MUTUAL_FUND'] = (
-                ((df_comp_not_monitor_product['COVERAGE_PRDTYPE'] == 'MUTUAL_FUND') &
-                (~df_comp_not_monitor_product['IS_COVERAGE']))
+                ((df_comp_not_monitor_product['COVERAGE_PRDTYPE'] == 'MUTUAL_FUND') & 
+                 (~df_comp_not_monitor_product['IS_COVERAGE']))
                 * df_comp_not_monitor_product['SCORE_NON_COVER_MUTUAL_FUND']
             )
 
-            select_cols = ['PORT_ID'
-                        , 'PRODUCT_ID'
-                        , 'COVERAGE_PRDTYPE'
-                        , 'PRODUCT_DISPLAY_NAME'
-                        , 'SCORE_NON_COVER_GLOBAL_STOCK'
-                        , 'SCORE_NON_COVER_LOCAL_STOCK'
-                        ,'SCORE_NON_COVER_MUTUAL_FUND']
+            select_cols = ['PORT_ID'] + ports.prod_comp_keys + ['COVERAGE_PRDTYPE'
+                            , 'SCORE_NON_COVER_GLOBAL_STOCK'
+                            , 'SCORE_NON_COVER_LOCAL_STOCK'
+                            ,'SCORE_NON_COVER_MUTUAL_FUND']
 
             df_comp_not_monitor_product = df_comp_not_monitor_product[select_cols]
 
@@ -261,19 +257,20 @@ class HealthScore:
                                     + df_health_score["SCORE_NOT_MONITORED_PRODUCT"])
 
         if cal_comp:
-            df_joined_comp = ports.df_out[['PORT_ID', 'PRODUCT_ID', 'SRC_SHARECODES', 'PRODUCT_DISPLAY_NAME', 'DESK', 'PORT_TYPE', 'CURRENCY', 'VALUE']] \
-                .merge(df_comp_risk_diversification, on=['PORT_ID', 'PRODUCT_ID', 'PRODUCT_DISPLAY_NAME'], how='left') \
-                .merge(df_comp_bulk_risk, on=['PORT_ID', 'PRODUCT_ID', 'PRODUCT_DISPLAY_NAME'], how='left') \
-                .merge(df_comp_issuer_risk, on=['PORT_ID', 'PRODUCT_ID', 'PRODUCT_DISPLAY_NAME'], how='left') \
-                .merge(df_comp_not_monitor_product, on=['PORT_ID', 'PRODUCT_ID', 'PRODUCT_DISPLAY_NAME'], how='left')
+            join_key = ['PORT_ID'] + ports.prod_comp_keys
+            df_joined_comp = ports.df_out[join_key + ['PRODUCT_TYPE_DESC', 'VALUE']] \
+                .merge(df_comp_risk_diversification, on=join_key, how='left') \
+                .merge(df_comp_bulk_risk, on=join_key, how='left') \
+                .merge(df_comp_issuer_risk, on=join_key, how='left') \
+                .merge(df_comp_not_monitor_product, on=join_key, how='left')
 
             ## treat null for .display()
             df_joined_comp['COVERAGE_PRDTYPE'] = np.where(df_joined_comp['COVERAGE_PRDTYPE'].isna(),
                                                             np.nan,
                                                             df_joined_comp['COVERAGE_PRDTYPE'])
-            df_joined_comp['PRODUCT_DISPLAY_NAME'] = np.where(df_joined_comp['PRODUCT_DISPLAY_NAME'].isna(),
-                                                            np.nan,
-                                                            df_joined_comp['PRODUCT_DISPLAY_NAME'])
+            # df_joined_comp['PRODUCT_DISPLAY_NAME'] = np.where(df_joined_comp['PRODUCT_DISPLAY_NAME'].isna(),
+            #                                                 np.nan,
+            #                                                 df_joined_comp['PRODUCT_DISPLAY_NAME'])
 
             return df_health_score, df_joined_comp
         else:

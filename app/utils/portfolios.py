@@ -1,8 +1,6 @@
 import os
 import warnings
-
 import pandas as pd
-
 from .utils import get_latest_eom, read_parquet, read_sql, write_parquet
 
 warnings.filterwarnings("ignore")
@@ -15,15 +13,34 @@ class Portfolios:
         self.df_style = None
         self.port_ids = None
         self.port_id_mapping = None
-        self.prod_comp_keys = ['PRODUCT_ID', 'SRC_SHARECODES', 'DESK', 'PORT_TYPE']
+        self.prod_comp_keys = ['PRODUCT_ID', 'SRC_SHARECODES', 'DESK', 'PORT_TYPE', 'CURRENCY']
+        self.asset_class_map = {
+            'Alternative': 'AA_ALT',
+            'Cash and Cash Equivalent': 'AA_CASH',
+            'Fixed Income': 'AA_FI',
+            'Global Equity': 'AA_GE',
+            'Local Equity': 'AA_LE'
+        }
+        self.style_map = {
+            'Bulletproof': 'Conservative',
+            'Conservative': 'Conservative',
+            'Moderate Low Risk': 'Medium to Moderate Low Risk',
+            'Moderate High Risk': 'Medium to Moderate High Risk',
+            'High Risk': 'High Risk',
+            'Aggressive Growth': 'Aggressive',
+            'Unwavering': 'Aggressive'
+        }
 
     def get_client_out_from_query(self, start_date, end_date, where_query="", value_column="AUMX_THB"):
         dim_column_select = [
             'CUSTOMER_ID',
-            'AS_OF_DATE'
-        ] + self.prod_comp_keys + [
-            'PRODUCT_DISPLAY_NAME',
+            'AS_OF_DATE',
+            'PRODUCT_ID',
+            'SRC_SHARECODES',
+            'DESK',
+            'PORT_TYPE',
             'CURRENCY',
+            'PRODUCT_DISPLAY_NAME',
             'PRODUCT_TYPE_DESC',
             'ASSET_CLASS_NAME',
             'SYMBOL',
@@ -34,8 +51,8 @@ class Portfolios:
             'EXPECTED_RETURN'
         ]
         query = f"""
-            SELECT {', '.join(dim_column_select)},
-                sum({value_column}) as VALUE
+            SELECT {', '.join(dim_column_select)}, 
+                   sum({value_column}) as VALUE
             FROM user.kwm.client_health_score_outstanding_range('{start_date}','{end_date}')
             {where_query}
             GROUP BY {', '.join(dim_column_select)}
@@ -79,9 +96,12 @@ class Portfolios:
         if as_of_date == '':
             as_of_date = get_latest_eom()
 
-        dim_column_select = self.prod_comp_keys + [
-            'PRODUCT_DISPLAY_NAME',
+        dim_column_select = ['PRODUCT_ID', 
+            'SRC_SHARECODES',
+            'DESK',
+            'PORT_TYPE',
             'CURRENCY',
+            'PRODUCT_DISPLAY_NAME',
             'PRODUCT_TYPE_DESC',
             'ASSET_CLASS_NAME',
             'SYMBOL',
@@ -125,7 +145,6 @@ class Portfolios:
         self.product_mapping = product_mapping
 
     def map_client_out_prod_info(self, df_products):
-        ## df_products must have columns PRODUCT_ID, PRODUCT_DISPLAY_NAME, PRODUCT_TYPE_DESC, VALUE
 
         if self.product_mapping is None:
             raise Exception("Product mapping is not loaded")
@@ -160,34 +179,17 @@ class Portfolios:
         self.process_portfolio()
 
     def process_portfolio(self):
-        asset_class_map = {
-            'Alternative': 'AA_ALT',
-            'Cash and Cash Equivalent': 'AA_CASH',
-            'Fixed Income': 'AA_FI',
-            'Global Equity': 'AA_GE',
-            'Local Equity': 'AA_LE'
-        }
-
-        self.df_out['ASSET_CLASS_CODE'] = self.df_out['ASSET_CLASS_NAME'].map(asset_class_map)
-
+        self.df_out['ASSET_CLASS_CODE'] = self.df_out['ASSET_CLASS_NAME'].map(self.asset_class_map)
         self.df_out['WEIGHT'] = self.df_out['VALUE'] / self.df_out.groupby(['PORT_ID'])['VALUE'].transform('sum')
+
         self.df_style['PORT_INVESTMENT_STYLE'] = self.df_style['PORT_INVESTMENT_STYLE'].fillna('Bulletproof')
-        style_map = {
-            'Bulletproof': 'Conservative',
-            'Conservative': 'Conservative',
-            'Moderate Low Risk': 'Medium to Moderate Low Risk',
-            'Moderate High Risk': 'Medium to Moderate High Risk',
-            'High Risk': 'High Risk',
-            'Aggressive Growth': 'Aggressive',
-            'Unwavering': 'Aggressive'
-        }
-        self.df_style['PORTPOP_STYLES'] = self.df_style['PORT_INVESTMENT_STYLE'].map(style_map)
+        self.df_style['PORTPOP_STYLES'] = self.df_style['PORT_INVESTMENT_STYLE'].map(self.style_map)
 
     def get_portfolio_asset_allocation(self):
         df_astc_alloc = (
             self.df_out.groupby(['PORT_ID', 'ASSET_CLASS_CODE'])['WEIGHT'].sum()
             .unstack(fill_value=0)
-            .reindex(columns=['AA_ALT', 'AA_CASH', 'AA_FI', 'AA_GE', 'AA_LE'], fill_value=0)
+            .reindex(columns=list(self.asset_class_map.values()), fill_value=0)
             .reset_index()
         )
         return df_astc_alloc
@@ -218,29 +220,4 @@ class Portfolios:
 
 if __name__ == "__main__":
     ports = Portfolios()
-    # out_mocked = """
-    # PRODUCT_ID	PRODUCT_DISPLAY_NAME	PRODUCT_TYPE_DESC	VALUE
-    # S00086648	NTL	Listed Securities	1000
-    # S00087551	BTSGIF	Listed Securities	1000
-    # S00088553	PTTEP	Listed Securities	1000
-    # S00088794	SCCC	Listed Securities	1000
-    # S00089185	FTREIT	Listed Securities	1000
-    # S00175880	SCGD	Listed Securities	1000
-    # S00251431	QHBREIT	Listed Securities	1000
-    # S00272592	SolarEdge Technologies Inc.	Listed Securities	1000
-    # T00263261	ATCL20241224B	Structured Note	1000
-    # T00265320	DNATCL20250106B	Structured Note	1000
-    # """
-    # # Create DataFrame
-    # df_table = pd.read_csv(StringIO(out_mocked), sep='\t')
 
-    # # df_out_mock = pd.DataFrame(df_table).astype({
-    # #                         "PRODUCT_ID": "string",
-    # #                         "PRODUCT_DISPLAY_NAME": "string",
-    # #                         "PRODUCT_TYPE_DESC": "string",
-    # #                         "VALUE": "float64"
-    # #                     })
-
-    # # df_style_mocked  = pd.DataFrame({'PORT_INVESTMENT_STYLE': ['Unwavering']})
-    # # ports.load_product_mapping('2025-07-31')
-    # # df_out_mocked = ports.map_client_out_prod_info(df_out_mock)
