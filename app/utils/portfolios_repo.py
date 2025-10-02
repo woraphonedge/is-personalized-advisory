@@ -9,24 +9,14 @@ from .data_loader import DataLoader
 
 class PortfoliosRepository:
     def __init__(self, data_loader: DataLoader):
-        self.data_loader = DataLoader()
-
-    # def get_portfolio_by_id(self, portfolio_id: int) -> pd.DataFrame:
-    #     query = "SELECT * FROM portfolios WHERE portfolio_id = %s"
-    #     df = self.loader.read_sql(query, params=(portfolio_id,))
-    #     return df
-    
+        self.data_loader = data_loader
 
     def load_client_out_product_enriched(
         self, 
-        start_date: str = "", 
-        end_date: str = "", 
-        where_query: str = "", 
+        as_of_date: str = "", 
+        filter_query: str = "", 
         value_column: str = "AUMX_THB"
     ) -> pd.DataFrame:
-        if start_date == '' and end_date == '':
-            start_date = get_latest_eom()
-            end_date =  get_latest_eom()
 
         dim_column_select = [
             'customer_id',
@@ -44,20 +34,26 @@ class PortfoliosRepository:
             'is_risky_asset',
             'coverage_prdtype',
             'is_coverage',
-            'expected_return'
+            'expected_return',
+            'es_core_port',
+            'es_sell_list',
+            'flag_top_pick',
+            'flag_tax_saving'
+
         ]
-        
+        if filter_query!="":
+            filter_query = "where " + filter_query
         # prep query
         query = f"""
             SELECT {', '.join(dim_column_select)}, 
                 sum({value_column}) as VALUE
-            FROM user.kwm.client_health_score_outstanding_range('{start_date}','{end_date}')
-            {where_query}
+            FROM user.kwm.client_health_score_outstanding_range('{as_of_date}','{as_of_date}')
+            {filter_query}
             GROUP BY {', '.join(dim_column_select)}
         """
         
         # prep cache file
-        cache_file = f"client_out_{start_date}_{end_date}.parquet"
+        cache_file = f"portfolios_client_out_enriched_{as_of_date}.parquet"
 
         # prep type dict
         type_dict = {
@@ -73,7 +69,11 @@ class PortfoliosRepository:
             "is_risky_asset": "bool",
             "coverage_prdtype": "string",
             "is_coverage": "bool",
-            "expected_return": "float64"
+            "expected_return": "float64",
+            'es_core_port': "bool",
+            'es_sell_list': "string",
+            'flag_top_pick': "string",
+            'flag_tax_saving': "string",
         }
 
         ports = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
@@ -86,17 +86,15 @@ class PortfoliosRepository:
     def load_client_style(
     # TODO: may be it need to create cal function in local
         self, 
-        start_date: str, 
-        end_date: str, 
+        as_of_date: str, 
         and_query: str = "", 
         style_column: str = "INVESTMENT_STYLE_AUMX"
     ) -> pd.DataFrame:
-        
-        if start_date == '' and end_date == '':
-            start_date = get_latest_eom()
-            end_date =  get_latest_eom()
+        if and_query != "":
+            and_query = "and " + and_query
+
         dim_column_select = ['customer_id', 'as_of_date']
-        where_query = f"WHERE AS_OF_DATE between '{start_date}' and '{end_date}' and {and_query}"
+        where_query = f"WHERE AS_OF_DATE between '{as_of_date}' and '{as_of_date}' {and_query}"
         
         # prep query
         query = f"""
@@ -107,7 +105,7 @@ class PortfoliosRepository:
         """
 
         # prep cache file
-        cache_file = f"client_style_{start_date}_{end_date}.parquet"
+        cache_file = f"portfolios_client_style_{as_of_date}.parquet"
 
         # prep type dict
         type_dict = {
@@ -121,6 +119,7 @@ class PortfoliosRepository:
         return styles
 
     def load_product_mapping(self, as_of_date: str = '') -> pd.DataFrame:
+     
         if as_of_date == '':
             as_of_date = get_latest_eom()
 
@@ -137,9 +136,13 @@ class PortfoliosRepository:
             'is_risky_asset',
             'coverage_prdtype',
             'is_coverage',
-            'expected_return'
+            'expected_return',
+            'es_core_port',
+            'es_sell_list',
+            'flag_top_pick',
+            'flag_tax_saving'
         ]
-        
+        ## TODO: Will nomalize this (maintain single source of truth in DWH)
         # prep query
         query = f"""
             SELECT DISTINCT {', '.join(dim_column_select)}
@@ -156,7 +159,7 @@ class PortfoliosRepository:
         """
        
         # prep cache file
-        cache_file = f"product_mapping_{as_of_date}.parquet"
+        cache_file = f"portfolios_product_mapping_{as_of_date}.parquet"
 
         # prep type dict
         type_dict = {
@@ -173,7 +176,11 @@ class PortfoliosRepository:
                         "is_risky_asset": "bool",
                         "coverage_prdtype": "string",
                         "is_coverage": "bool",
-                        "expected_return": "float64"
+                        "expected_return": "float64",
+                        'es_core_port': "bool",
+                        'es_sell_list': "string",
+                        'flag_top_pick': "string",
+                        'flag_tax_saving': "string",
                     }
         product_mapping = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
 
@@ -196,7 +203,7 @@ class PortfoliosRepository:
         """
        
         # prep cache file
-        cache_file = f"underlying_mapping.parquet"
+        cache_file = f"portfolios_underlying_mapping.parquet"
 
         # prep type dict
         type_dict = {

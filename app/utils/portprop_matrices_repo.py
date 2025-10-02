@@ -9,7 +9,7 @@ from .data_loader import DataLoader
 
 class PortpropMatricesRepository:
     def __init__(self, data_loader: DataLoader):
-        self.data_loader = DataLoader()
+        self.data_loader = data_loader
 
 
     # --- PortProp Factsheet ---
@@ -91,7 +91,7 @@ class PortpropMatricesRepository:
                    model_name
             FROM user.edg.advisory_health_score
         """
-        cache_file = "advisory_health_score.parquet"
+        cache_file = "portprop_advisory_model.parquet"
         type_dict = {
             "expected_return": "float64",
             "expected_return_w_hedging_cost": "float64",

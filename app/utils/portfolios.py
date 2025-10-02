@@ -1,4 +1,3 @@
-import os
 import warnings
 import pandas as pd
 
@@ -33,7 +32,7 @@ class Portfolios:
             'Unwavering': 'Aggressive'
         }
 
-    def set_ports_ref_tables(self, ref_dict: dict):
+    def set_ref_tables(self, ref_dict: dict):
 
         # Set DataFrames with validation
         self.product_mapping = None if 'product_mapping' not in ref_dict else ref_dict['product_mapping']

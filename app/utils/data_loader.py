@@ -11,10 +11,12 @@ import numpy as np
 warnings.filterwarnings("ignore", message=".*_user_agent_entry.*")
 
 class DataLoader:
-    def __init__(self):
-        self.load_from_db = str(os.getenv("LOAD_DATA_FROM_DWH", "")).strip().lower() in {"1", "true", "yes"}
-        self.engine = self.get_databricks_engine()
-
+    def __init__(self, load_from_db: bool = None):
+        if load_from_db is None:
+            self.load_from_db = str(os.getenv("LOAD_DATA_FROM_DWH", "")).strip().lower() in {"1", "true", "yes"}
+        else:
+            self.load_from_db = load_from_db
+        
     def get_databricks_engine(self):
         ACCESS_TOKEN = os.getenv("DATABRICKS_ACCESS_TOKEN")
         HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
@@ -31,7 +33,8 @@ class DataLoader:
         return data_dir
 
     def read_sql(self, query: str, params=None) -> pd.DataFrame:
-        with self.engine.connect() as conn:
+        engine = self.get_databricks_engine()
+        with engine.connect() as conn:
             df = pd.read_sql(query, conn, params=params)
         df.columns = [col.lower() for col in df.columns]
         return df.replace({pd.NA: np.nan})

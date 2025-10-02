@@ -1,6 +1,6 @@
+import warnings
 import pandas as pd
 import numpy as np
-from utils import *
 
 
 class Rebalancer:
@@ -73,8 +73,8 @@ class Rebalancer:
 
         # keep a clean recommendations frame template for easy resets
         self._reco_cols = [
-            "TRANSACTION_NO", "BATCH_NO", "PORT_ID", "PRODUCT_ID", "SRC_SHARECODES", "DESK",
-            "PORT_TYPE", "CURRENCY", "VALUE", "WEIGHT", "FLAG", "EXPECTED_WEIGHT", "ACTION", "AMOUNT",
+            "transaction_no", "batch_no", "port_id", "product_id", "src_sharecodes", "desk",
+            "port_type", "currency", "value", "weight", "flag", "expected_weight", "action", "amount",
         ]
         self.recommendations = pd.DataFrame(columns=self._reco_cols)
 
@@ -82,9 +82,7 @@ class Rebalancer:
         self.es_sell_list: pd.DataFrame | None = None
         self.product_recommendation_rank_raw: pd.DataFrame | None = None
         self.mandate_allocation: pd.DataFrame | None = None
-        self.load_es_sell_list()
-        self.load_product_recommendation_rank_raw()
-        self.load_mandate_candidates()
+
 
     # ---------- state mgmt ----------
     def reset_state(self) -> None:
@@ -93,31 +91,23 @@ class Rebalancer:
         self._batch_seq = 0
         self.recommendations = pd.DataFrame(columns=self._reco_cols)
 
-    def refresh_reference_data(self) -> None:
-        """Reload cached reference tables (if you expect DB to have changed)."""
-        self.load_es_sell_list()
-        self.load_product_recommendation_rank_raw()
-        self.mandate_allocation = None
-        self.load_mandate_candidates()
-
     # ---------- cached loaders ----------
-    def load_es_sell_list(self) -> None:
-        self.es_sell_list = read_sql("select * from user.kwm.personalized_advisory_es_sell_list where upper(RECOMMENDATION) like '%SELL%' or upper(RECOMMENDATION) like '%SWITCH%'")
+    def set_ref_tables(self, ref_dict: dict):
+        """Reload cached reference tables (if you expect DB to have changed)."""
+        # Set DataFrames with validation
+        self.es_sell_list = None if "es_sell_list" not in ref_dict else ref_dict["es_sell_list"] 
+        self.product_recommendation_rank_raw = None if "product_recommendation_rank_raw" not in ref_dict else ref_dict["product_recommendation_rank_raw"] 
+        self.mandate_allocation = None if "mandate_allocation" not in ref_dict else ref_dict["mandate_allocation"] 
 
-    def load_product_recommendation_rank_raw(self) -> None:
-        self.product_recommendation_rank_raw = read_sql(
-            "select * from user.kwm.personalized_advisory_recommendation_rank"
-        )
-
-    def load_mandate_candidates(self) -> pd.DataFrame:
-        """Preload (and cache) mandate universe once; return cached frame."""
-        if self.mandate_allocation is None:
-            sql = "select * from user.kwm.personalized_advisory_asset_allocation_weight"
-            df = read_sql(sql)
-            for c in ["AA_CASH","AA_FI","AA_LE","AA_GE","AA_ALT"]:
-                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-            self.mandate_allocation = df
-        return self.mandate_allocation
+        # Validate required elements
+        required_elements = {
+            "es_sell_list": self.es_sell_list,
+            "product_recommendation_rank_raw": self.product_recommendation_rank_raw,
+            "mandate_allocation": self.mandate_allocation,
+        }
+        for key, value in required_elements.items():
+            if value is None:
+                warnings.warn(f"'{key}' not provided. Expect errors if used.")
 
     def get_product_recommendation_rank(self, ports) -> pd.DataFrame:
         """Merge the (preloaded) recommendation rank with current product mapping."""
@@ -125,9 +115,9 @@ class Rebalancer:
             self.load_product_recommendation_rank_raw()
         df = self.product_recommendation_rank_raw.merge(
             ports.product_mapping,
-            on=["SRC_SHARECODES", "DESK", "CURRENCY"],
+            on=["src_sharecodes", "desk", "currency"],
             how="left",
-            suffixes=("", "_MAPPING")
+            suffixes=("", "_mapping")
         )
         return df
 
@@ -142,31 +132,31 @@ class Rebalancer:
         """
         if df is None or df.empty:
             return pd.DataFrame(columns=[
-                "PORT_ID","PRODUCT_ID","SRC_SHARECODES","DESK","PORT_TYPE","CURRENCY",
-                "VALUE","WEIGHT","FLAG","EXPECTED_WEIGHT","ACTION","AMOUNT"
+                "port_id","product_id","src_sharecodes","desk","port_type","currency",
+                "value","weight","flag","expected_weight","action","amount"
             ])
         if ports.product_mapping is None:
             raise RuntimeError("Product mapping must be loaded before mapping cash proxy.")
 
-        cash_map = ports.product_mapping[ports.product_mapping["SYMBOL"] == "CASH PROXY"][
-            ["PRODUCT_ID", "SRC_SHARECODES", "DESK", "PORT_TYPE", "CURRENCY"]
+        cash_map = ports.product_mapping[ports.product_mapping["symbol"] == "CASH PROXY"][
+            ["product_id", "src_sharecodes", "desk", "port_type", "currency"]
         ].copy()
 
         if per_row:
-            base = df[["PORT_ID","CURRENCY","AMOUNT"]].copy()
+            base = df[["port_id","currency","amount"]].copy()
         else:
-            base = df.groupby(["PORT_ID","CURRENCY"], dropna=False, as_index=False)["AMOUNT"].sum()
+            base = df.groupby(["port_id","currency"], dropna=False, as_index=False)["amount"].sum()
 
-        out = base.merge(cash_map, on="CURRENCY", how="left")
-        out["AMOUNT"] = -out["AMOUNT"].astype(float)
-        out["VALUE"] = np.nan
-        out["WEIGHT"] = np.nan
-        out["FLAG"] = "cash_proxy_funding"  # hardcoded
-        out["EXPECTED_WEIGHT"] = np.nan
-        out["ACTION"] = "funding"
+        out = base.merge(cash_map, on="currency", how="left")
+        out["amount"] = -out["amount"].astype(float)
+        out["value"] = np.nan
+        out["weight"] = np.nan
+        out["flag"] = "cash_proxy_funding"  # hardcoded
+        out["expected_weight"] = np.nan
+        out["action"] = "funding"
 
-        cols = ["PORT_ID","PRODUCT_ID","SRC_SHARECODES","DESK","PORT_TYPE","CURRENCY",
-                "VALUE","WEIGHT","FLAG","EXPECTED_WEIGHT","ACTION","AMOUNT"]
+        cols = ["port_id","product_id","src_sharecodes","desk","port_type","currency",
+                "value","weight","flag","expected_weight","action","amount"]
         out = out.loc[:, ~out.columns.duplicated()]
         return out[cols]
 
@@ -175,20 +165,20 @@ class Rebalancer:
     # ---------------------------
     def update_portfolio(self, ports: "Portfolios", trade_rows: pd.DataFrame) -> None:
         trade_as_positions = (
-            trade_rows[["PORT_ID","AMOUNT"] + ports.prod_comp_keys]
-            .rename(columns={"AMOUNT": "VALUE"})
+            trade_rows[["port_id","amount"] + ports.prod_comp_keys]
+            .rename(columns={"amount": "value"})
             .copy()
         )
 
-        base_positions = ports.df_out[["PORT_ID","VALUE"] + ports.prod_comp_keys].copy()
+        base_positions = ports.df_out[["port_id","value"] + ports.prod_comp_keys].copy()
         df_products = pd.concat([base_positions, trade_as_positions], ignore_index=True, sort=False)
 
         df_products = (
             df_products.groupby(
-                ["PORT_ID"] + ports.prod_comp_keys,
+                ["port_id"] + ports.prod_comp_keys,
                 dropna=False,
                 as_index=False,
-            )["VALUE"]
+            )["value"]
             .sum()
         )
         product_mapping = ports.product_mapping
@@ -198,7 +188,7 @@ class Rebalancer:
             how="left",
         )
 
-        df_out = df_out[df_out["VALUE"] != 0]
+        df_out = df_out[df_out["value"] != 0]
         ports.set_portfolio(df_out, ports.df_style, ports.port_ids, ports.port_id_mapping)
 
     # ----- Mandate helpers -----
@@ -215,26 +205,26 @@ class Rebalancer:
         tv = float(total_value or 0.0)
         headroom_amt = float(mandate_headroom_w) * tv
 
-        port_alloc = ports.get_portfolio_asset_allocation_lookthrough(ppm)[0]
+        port_alloc = ports.get_portfolio_asset_allocation_lookthrough(ppm)
         model_alloc = ports.get_model_asset_allocation_lookthrough(ppm)
-        diffs = port_alloc.merge(model_alloc, on="PORT_ID", how="left")
+        diffs = port_alloc.merge(model_alloc, on="port_id", how="left")
 
-        aa_cols = ["AA_CASH","AA_FI","AA_LE","AA_GE","AA_ALT"]
-        need = np.array([max(float(diffs[f"{c}_MODEL"].iloc[0] - diffs[c].iloc[0]), 0.0) for c in aa_cols], dtype=float)
+        aa_cols = ["aa_cash","aa_fi","aa_le","aa_ge","aa_alt"]
+        need = np.array([max(float(diffs[f"{c}_model"].iloc[0] - diffs[c].iloc[0]), 0.0) for c in aa_cols], dtype=float)
         if need.sum() <= self.eps_tiny:
             return None
         need = need / need.sum()
 
-        cands = mandate_df[mandate_df["CURRENCY"] == currency].copy()
+        cands = mandate_df[mandate_df["currency"] == currency].copy()
         if cands.empty:
             return None
 
         # filter universe by headroom amount
-        if "PRODUCT_TYPE_DESC" in cands.columns:
+        if "product_type_desc" in cands.columns:
             if headroom_amt + self.eps >= self.min_mandate_amount:
-                cands = cands[cands["PRODUCT_TYPE_DESC"] == "Mandate"]
+                cands = cands[cands["product_type_desc"] == "Mandate"]
             else:
-                cands = cands[cands["PRODUCT_TYPE_DESC"] != "Mandate"]
+                cands = cands[cands["product_type_desc"] != "Mandate"]
             if cands.empty:
                 return None
 
@@ -250,60 +240,62 @@ class Rebalancer:
         return winners.sample(n=1, random_state=np.random.randint(0, 1_000_000)).iloc[0]
 
     def get_cash_buckets(self, ports) -> pd.DataFrame:
-        cash = ports.df_out[ports.df_out["SYMBOL"] == "CASH PROXY"]
+        ## Comment: Should it belong to ports?
+        cash = ports.df_out[ports.df_out["symbol"] == "CASH PROXY"]
         if cash.empty:
             return cash
-        out = (cash.groupby(["PORT_ID","CURRENCY"], as_index=False)
-                    .agg(WEIGHT=("WEIGHT","sum"), VALUE=("VALUE","sum"))).sort_values("WEIGHT", ascending=False)
+        out = (cash.groupby(["port_id","currency"], as_index=False)
+                    .agg(weight=("weight","sum"), value=("value","sum"))).sort_values("weight", ascending=False)
         return out
 
     def get_mandate_weight(self, ports) -> float:
-        if "PRODUCT_TYPE_DESC" in ports.df_out.columns:
-            return float(ports.df_out.loc[ports.df_out["PRODUCT_TYPE_DESC"] == "Mandate", "WEIGHT"].sum() or 0.0)
+        if "product_type_desc" in ports.df_out.columns:
+            return float(ports.df_out.loc[ports.df_out["product_type_desc"] == "Mandate", "weight"].sum() or 0.0)
         mandates = self.load_mandate_candidates()
-        mandate_syms = set(mandates["SYMBOL"].astype(str).unique())
-        if "SYMBOL" in ports.df_out.columns:
-            return float(ports.df_out.loc[ports.df_out["SYMBOL"].astype(str).isin(mandate_syms), "WEIGHT"].sum() or 0.0)
+        mandate_syms = set(mandates["symbol"].astype(str).unique())
+        if "symbol" in ports.df_out.columns:
+            return float(ports.df_out.loc[ports.df_out["symbol"].astype(str).isin(mandate_syms), "weight"].sum() or 0.0)
         return 0.0
 
     # ---------------------------
     # Sell phase
     # ---------------------------
+    ## Comment: Can we delegate theses tasks to healthscore?
     def check_not_monitored(self, ports, ppm, hs) -> pd.DataFrame:
         _, comp = ports.get_portfolio_health_score(ppm, hs, cal_comp=True)
         mask = (
-            (comp["SCORE_NON_COVER_GLOBAL_STOCK"] < 0)
-            | (comp["SCORE_NON_COVER_LOCAL_STOCK"] < 0)
-            | (comp["SCORE_NON_COVER_MUTUAL_FUND"] < 0)
+            (comp["score_non_cover_global_stock"] < 0)
+            | (comp["score_non_cover_local_stock"] < 0)
+            | (comp["score_non_cover_mutual_fund"] < 0)
         )
         sub = comp.loc[mask].copy()
-        sub["FLAG"] = "not_monitored_product"
-        sub["EXPECTED_WEIGHT"] = 0.0
+        sub["flag"] = "not_monitored_product"
+        sub["expected_weight"] = 0.0
         return sub
 
     def check_issuer_risk(self, ports, ppm, hs) -> pd.DataFrame:
         _, comp = ports.get_portfolio_health_score(ppm, hs, cal_comp=True)
-        sub = comp[~comp["ISSURE_RISK_GROUP"].isna()].copy()
-        sub["FLAG"] = "issuer_risk"
+        sub = comp[~comp["issure_risk_group"].isna()].copy()
+        sub["flag"] = "issuer_risk"
 
-        sum_weight = comp.groupby('ISSURE_RISK_GROUP').agg({'WEIGHT': 'sum'})
-        sub = sub.merge(sum_weight, on='ISSURE_RISK_GROUP', how='left', suffixes=('', '_ISSURE_RISK_GROUP'))
-        sub['EXPECTED_WEIGHT'] = (0.19 / sub['WEIGHT_ISSURE_RISK_GROUP']) * sub['WEIGHT']
+        sum_weight = comp.groupby("issure_risk_group").agg({"weight": "sum"})
+        sub = sub.merge(sum_weight, on="issure_risk_group", how="left", suffixes=('', '_issure_risk_group'))
+        sub["expected_weight"] = (0.19 / sub["weight_issure_risk_group"]) * sub["weight"]
         return sub
 
     def check_bulk_risk(self, ports, ppm, hs) -> pd.DataFrame:
         _, comp = ports.get_portfolio_health_score(ppm, hs, cal_comp=True)
-        sub = comp[comp["IS_BULK_RISK"]].copy()
-        sub["FLAG"] = "bulk_risk"
-        sub["EXPECTED_WEIGHT"] = 0.19
+        sub = comp[comp["is_bulk_risk"]].copy()
+        sub["flag"] = "bulk_risk"
+        sub["expected_weight"] = 0.19
         return sub
 
     def check_es_sell_list(self, ports, ppm, hs) -> pd.DataFrame:
         _, comp = ports.get_portfolio_health_score(ppm, hs, cal_comp=True)
-        comp = comp.merge(self.es_sell_list, left_on="SRC_SHARECODES", right_on="SYMBOL", how="left")
-        sub = comp[~comp["SYMBOL"].isna()].copy()
-        sub["FLAG"] = "sell_list"
-        sub["EXPECTED_WEIGHT"] = 0
+        comp = comp.merge(self.es_sell_list, left_on="src_sharecodes", right_on="symbol", how="left")
+        sub = comp[~comp["symbol"].isna()].copy()
+        sub["flag"] = "sell_list"
+        sub["expected_weight"] = 0
         return sub
 
     def build_sell_recommendations(self, ports, ppm, hs) -> pd.DataFrame:
@@ -320,20 +312,20 @@ class Rebalancer:
         rec = pd.concat(parts, ignore_index=True)
 
         key_cols = [
-            "PORT_ID","PRODUCT_ID","SRC_SHARECODES","DESK","PORT_TYPE","CURRENCY","VALUE","WEIGHT",
+            "port_id","product_id","src_sharecodes","desk","port_type","currency","value","weight",
         ]
         rec = (
             rec.groupby(key_cols, dropna=False, as_index=False)
-              .agg(FLAG=("FLAG", lambda x: ", ".join(sorted(set(x)))),
-                   EXPECTED_WEIGHT=("EXPECTED_WEIGHT", "min"))
+              .agg(flag=("flag", lambda x: ", ".join(sorted(set(x)))),
+                   expected_weight=("expected_weight", "min"))
         )
 
-        rec["ACTION"] = "sell"
+        rec["action"] = "sell"
         with np.errstate(divide="ignore", invalid="ignore"):
-            rec["AMOUNT"] = -1.0 * ((rec["WEIGHT"] - rec["EXPECTED_WEIGHT"]) / rec["WEIGHT"]) * rec["VALUE"]
-        rec["AMOUNT"] = rec["AMOUNT"].fillna(0.0)
+            rec["amount"] = -1.0 * ((rec["weight"] - rec["expected_weight"]) / rec["weight"]) * rec["value"]
+        rec["amount"] = rec["amount"].fillna(0.0)
 
-        chosen = rec.loc[rec["AMOUNT"] != 0].copy()
+        chosen = rec.loc[rec["amount"] != 0].copy()
         if chosen.empty:
             return pd.DataFrame(columns=self.recommendations.columns)
 
@@ -341,16 +333,16 @@ class Rebalancer:
         trades = []
         for _, row in chosen.iterrows():
             row_df = pd.DataFrame([row[
-                ["PORT_ID","PRODUCT_ID","SRC_SHARECODES","DESK","PORT_TYPE","CURRENCY",
-                 "VALUE","WEIGHT","FLAG","EXPECTED_WEIGHT","ACTION","AMOUNT"]
+                ["port_id","product_id","src_sharecodes","desk","port_type","currency",
+                 "value","weight","flag","expected_weight","action","amount"]
             ]])
 
             # row-level minimum checks (BOTH must pass)
             try:
-                w_change = abs(float(row_df["WEIGHT"].iloc[0] - row_df["EXPECTED_WEIGHT"].iloc[0]))
+                w_change = abs(float(row_df["weight"].iloc[0] - row_df["expected_weight"].iloc[0]))
             except Exception:
                 w_change = 0.0
-            a_abs = abs(float(row_df["AMOUNT"].iloc[0] or 0.0))
+            a_abs = abs(float(row_df["amount"].iloc[0] or 0.0))
             if (w_change < self.min_weight_per_row) or (a_abs < self.min_amount_per_row):
                 continue
 
@@ -364,14 +356,14 @@ class Rebalancer:
             n = len(row_df)
             start = self._txn_seq + 1
             self._txn_seq += n
-            row_df["BATCH_NO"] = batch_no
-            row_df["TRANSACTION_NO"] = list(range(start, start + n))
+            row_df["batch_no"] = batch_no
+            row_df["transaction_no"] = list(range(start, start + n))
 
             n2 = len(funding_df)
             start2 = self._txn_seq + 1
             self._txn_seq += n2
-            funding_df["BATCH_NO"] = batch_no
-            funding_df["TRANSACTION_NO"] = list(range(start2, start2 + n2))
+            funding_df["batch_no"] = batch_no
+            funding_df["transaction_no"] = list(range(start2, start2 + n2))
 
             cols = list(self.recommendations.columns)
             for dfp in (row_df, funding_df):
@@ -392,12 +384,13 @@ class Rebalancer:
     # Buy phase
     # ---------------------------
     @staticmethod
+    ## Comment: Can we delegate this task to portprop?
     def get_port_model_allocation_diff(ports, ppm) -> pd.DataFrame:
-        port_alloc = ports.get_portfolio_asset_allocation_lookthrough(ppm)[0]
+        port_alloc = ports.get_portfolio_asset_allocation_lookthrough(ppm)
         model_alloc = ports.get_model_asset_allocation_lookthrough(ppm)
-        out = port_alloc.merge(model_alloc, on=["PORT_ID"], how="left")
-        for col in ["AA_CASH", "AA_FI", "AA_LE", "AA_GE", "AA_ALT"]:
-            out[f"{col}_DIFF"] = out[col] - out[f"{col}_MODEL"]
+        out = port_alloc.merge(model_alloc, on=["port_id"], how="left")
+        for col in ["aa_cash", "aa_fi", "aa_le", "aa_ge", "aa_alt"]:
+            out[f"{col}_diff"] = out[col] - out[f"{col}_model"]
         return out
 
     def build_buy_recommendations(self, ports, ppm) -> pd.DataFrame:
@@ -411,18 +404,21 @@ class Rebalancer:
            single-line cap self.single_line_cap_non_mandate (for non-mandates).
         """
         product_recommendation_rank = self.get_product_recommendation_rank(ports)
-        mandates = self.load_mandate_candidates()
+        
+        ## Comment: Why we dont use self.mandate_allocation instead of creating 
+        # new variables mandates, it is easier to track.
+        mandates = self.mandate_allocation
 
         asset_map = {
-            "AA_CASH_DIFF": "Cash and Cash Equivalent",
-            "AA_FI_DIFF": "Fixed Income",
-            "AA_LE_DIFF": "Local Equity",
-            "AA_GE_DIFF": "Global Equity",
-            "AA_ALT_DIFF": "Alternative",
+            "aa_cash_diff": "Cash and Cash Equivalent",
+            "aa_fi_diff": "Fixed Income",
+            "aa_le_diff": "Local Equity",
+            "aa_ge_diff": "Global Equity",
+            "aa_alt_diff": "Alternative",
         }
     
         buys = []
-        total_value = float(ports.df_out["VALUE"].sum())
+        total_value = float(ports.df_out["value"].sum())
 
         # --------- Phase 1: ONE-OFF mandate trade ----------
         diffs = self.get_port_model_allocation_diff(ports, ppm)
@@ -432,7 +428,7 @@ class Rebalancer:
         abs_under = abs(min_val)
 
         cash_buckets = self.get_cash_buckets(ports)
-        total_cash_w = float(cash_buckets["WEIGHT"].sum()) if not cash_buckets.empty else 0.0
+        total_cash_w = float(cash_buckets["weight"].sum()) if not cash_buckets.empty else 0.0
 
         mandate_w_now = self.get_mandate_weight(ports)
         mandate_headroom = max(0.0, self.discretionary_acceptance - mandate_w_now)
@@ -445,8 +441,8 @@ class Rebalancer:
             for i in range(len(cash_buckets)):
                 if i>=len(cash_buckets):
                     break
-                fund_ccy = cash_buckets.iloc[i]["CURRENCY"]
-                cash_w_ccy = float(cash_buckets.iloc[i]["WEIGHT"] or 0.0)
+                fund_ccy = cash_buckets.iloc[i]["currency"]
+                cash_w_ccy = float(cash_buckets.iloc[i]["weight"] or 0.0)
                 
                 add_w = min(mandate_headroom, cash_w_ccy, abs_under)
                 amt = add_w * total_value
@@ -465,23 +461,23 @@ class Rebalancer:
                     )
 
                     if chosen_md is not None and add_w > self.eps:
-                        sym = chosen_md["SYMBOL"]
-                        existing = ports.df_out[ports.df_out["SYMBOL"] == sym][["WEIGHT"]]
-                        cur_weight = float(existing["WEIGHT"].sum()) if not existing.empty else 0.0
+                        sym = chosen_md["symbol"]
+                        existing = ports.df_out[ports.df_out["symbol"] == sym][["weight"]]
+                        cur_weight = float(existing["weight"].sum()) if not existing.empty else 0.0
 
                         chosen = pd.DataFrame([{
-                            "PORT_ID":        ports.port_ids.iloc[0] if hasattr(ports.port_ids, "iloc") else ports.port_ids[0],
-                            "PRODUCT_ID":     chosen_md["PRODUCT_ID"],
-                            "SRC_SHARECODES": chosen_md["SRC_SHARECODES"],
-                            "DESK":           chosen_md["DESK"],
-                            "PORT_TYPE":      chosen_md["PORT_TYPE"],
-                            "CURRENCY":       chosen_md["CURRENCY"],
-                            "VALUE":          0.0,
-                            "WEIGHT":         cur_weight,
-                            "FLAG":           "discretionary_buy",  # hardcoded
-                            "EXPECTED_WEIGHT":cur_weight + add_w,
-                            "ACTION":         "buy",
-                            "AMOUNT":         amt,
+                            "port_id":        ports.port_ids.iloc[0] if hasattr(ports.port_ids, "iloc") else ports.port_ids[0],
+                            "product_id":     chosen_md["product_id"],
+                            "src_sharecodes": chosen_md["src_sharecodes"],
+                            "desk":           chosen_md["desk"],
+                            "port_type":      chosen_md["port_type"],
+                            "currency":       chosen_md["currency"],
+                            "value":          0.0,
+                            "weight":         cur_weight,
+                            "flag":           "discretionary_buy",  # hardcoded
+                            "expected_weight":cur_weight + add_w,
+                            "action":         "buy",
+                            "amount":         amt,
                         }])
 
                         # funding per row to keep 1-1 pair
@@ -494,14 +490,14 @@ class Rebalancer:
                         n = len(chosen)
                         start = self._txn_seq + 1
                         self._txn_seq += n
-                        chosen["BATCH_NO"] = batch_no
-                        chosen["TRANSACTION_NO"] = list(range(start, start + n))
+                        chosen["batch_no"] = batch_no
+                        chosen["transaction_no"] = list(range(start, start + n))
 
                         n2 = len(cash_proxy)
                         start2 = self._txn_seq + 1
                         self._txn_seq += n2
-                        cash_proxy["BATCH_NO"] = batch_no
-                        cash_proxy["TRANSACTION_NO"] = list(range(start2, start2 + n2))
+                        cash_proxy["batch_no"] = batch_no
+                        cash_proxy["transaction_no"] = list(range(start2, start2 + n2))
 
                         cols = list(self.recommendations.columns)
                         for dfp in (chosen, cash_proxy):
@@ -532,14 +528,14 @@ class Rebalancer:
                 break  # underweight gate
 
             cash_buckets = self.get_cash_buckets(ports)
-            total_cash_w = float(cash_buckets["WEIGHT"].sum()) if not cash_buckets.empty else 0.0
+            total_cash_w = float(cash_buckets["weight"].sum()) if not cash_buckets.empty else 0.0
             if total_cash_w < self.buy_step_weight_max or cash_buckets.empty:
                 break  # cash gate
             made_trade = False
 
             for _, cb in cash_buckets.iterrows():
-                fund_ccy = cb["CURRENCY"]
-                cash_w_ccy = float(cb["WEIGHT"] or 0.0)
+                fund_ccy = cb["currency"]
+                cash_w_ccy = float(cb["weight"] or 0.0)
                 if cash_w_ccy <= self.eps:
                     continue
 
@@ -552,45 +548,45 @@ class Rebalancer:
                 if step_w <= self.eps:
                     continue
 
-                df_out = ports.df_out[["PORT_ID", "SRC_SHARECODES", "CURRENCY", "VALUE", "WEIGHT"]]
+                df_out = ports.df_out[["port_id", "src_sharecodes", "currency", "value", "weight"]]
 
                 cand = product_recommendation_rank[
-                    (product_recommendation_rank["ASSET_CLASS_NAME"] == min_asset) &
-                    (product_recommendation_rank["CURRENCY"] == fund_ccy)
+                    (product_recommendation_rank["asset_class_name"] == min_asset) &
+                    (product_recommendation_rank["currency"] == fund_ccy)
                 ]
-                if "PRODUCT_TYPE_DESC" in cand.columns:
-                    cand = cand[cand["PRODUCT_TYPE_DESC"] != "Mandate"]
+                if "product_type_desc" in cand.columns:
+                    cand = cand[cand["product_type_desc"] != "Mandate"]
 
                 candidates = (
-                    cand.merge(df_out, on="SRC_SHARECODES", how="left", suffixes=("", "_PORT"))
-                       .fillna({"VALUE": 0.0, "WEIGHT": 0.0})
+                    cand.merge(df_out, on="src_sharecodes", how="left", suffixes=("", "_port"))
+                       .fillna({"value": 0.0, "weight": 0.0})
                 )
 
                 if candidates.empty:
                     continue
 
-                candidates["PORT_ID"] = (
+                candidates["port_id"] = (
                     ports.port_ids.iloc[0] if hasattr(ports.port_ids, "iloc") else ports.port_ids[0]
                 )
-                candidates["FLAG"] = f"{min_asset.lower().replace(' ','_')}_buy"
-                candidates["EXPECTED_WEIGHT"] = candidates["WEIGHT"] + step_w
-                candidates["ACTION"] = "buy"
-                candidates["AMOUNT"] = step_amount
-                candidates = candidates[candidates["EXPECTED_WEIGHT"] < self.single_line_cap_non_mandate]
+                candidates["flag"] = f"{min_asset.lower().replace(" ","_")}_buy"
+                candidates["expected_weight"] = candidates["weight"] + step_w
+                candidates["action"] = "buy"
+                candidates["amount"] = step_amount
+                candidates = candidates[candidates["expected_weight"] < self.single_line_cap_non_mandate]
                 if candidates.empty:
                     continue
 
-                best_rank = candidates["RANK_PRODUCT"].min()
-                chosen = candidates[candidates["RANK_PRODUCT"] == best_rank].copy()
-                if "CURRENCY" not in chosen.columns and "CURRENCY_PORT" in chosen.columns:
-                    chosen["CURRENCY"] = chosen["CURRENCY_PORT"]
-                if "CURRENCY" not in chosen.columns:
-                    chosen["CURRENCY"] = fund_ccy
+                best_rank = candidates["rank_product"].min()
+                chosen = candidates[candidates["rank_product"] == best_rank].copy()
+                if "currency" not in chosen.columns and "currency_port" in chosen.columns:
+                    chosen["currency"] = chosen["currency_port"]
+                if "currency" not in chosen.columns:
+                    chosen["currency"] = fund_ccy
 
                 chosen = chosen[
                     [
-                        "PORT_ID","PRODUCT_ID","SRC_SHARECODES","DESK","PORT_TYPE","CURRENCY",
-                        "VALUE","WEIGHT","FLAG","EXPECTED_WEIGHT","ACTION","AMOUNT",
+                        "port_id","product_id","src_sharecodes","desk","port_type","currency",
+                        "value","weight","flag","expected_weight","action","amount",
                     ]
                 ]
                 cash_proxy = self.build_cash_proxy_funding(ports, chosen, per_row=True)
@@ -602,14 +598,14 @@ class Rebalancer:
                 n = len(chosen)
                 start = self._txn_seq + 1
                 self._txn_seq += n
-                chosen["BATCH_NO"] = batch_no
-                chosen["TRANSACTION_NO"] = list(range(start, start + n))
+                chosen["batch_no"] = batch_no
+                chosen["transaction_no"] = list(range(start, start + n))
 
                 n2 = len(cash_proxy)
                 start2 = self._txn_seq + 1
                 self._txn_seq += n2
-                cash_proxy["BATCH_NO"] = batch_no
-                cash_proxy["TRANSACTION_NO"] = list(range(start2, start2 + n2))
+                cash_proxy["batch_no"] = batch_no
+                cash_proxy["transaction_no"] = list(range(start2, start2 + n2))
 
                 cols = list(self.recommendations.columns)
                 for dfp in (chosen, cash_proxy):
@@ -633,39 +629,39 @@ class Rebalancer:
     # Cash overweight -> Cash Proxy (same currency) — 1-to-1 pairing
     # ---------------------------
     def move_cash_overweight_to_proxy(self, ports, ppm) -> pd.DataFrame:
-        if "PRODUCT_TYPE_DESC" not in ports.df_out.columns:
+        if "product_type_desc" not in ports.df_out.columns:
             return pd.DataFrame(columns=self.recommendations.columns)
 
-        if "SYMBOL" in ports.df_out.columns:
-            mask = (ports.df_out["PRODUCT_TYPE_DESC"] == "Cash") & (ports.df_out["SYMBOL"] != "CASH PROXY")
+        if "symbol" in ports.df_out.columns:
+            mask = (ports.df_out["product_type_desc"] == "Cash") & (ports.df_out["symbol"] != "CASH PROXY")
         else:
-            mask = (ports.df_out["PRODUCT_TYPE_DESC"] == "Cash")
+            mask = (ports.df_out["product_type_desc"] == "Cash")
 
         cash_rows = ports.df_out[mask].copy()
         if cash_rows.empty:
             return pd.DataFrame(columns=self.recommendations.columns)
 
-        port_alloc = ports.get_portfolio_asset_allocation_lookthrough(ppm)[0]
+        port_alloc = ports.get_portfolio_asset_allocation_lookthrough(ppm)
         model_alloc = ports.get_model_asset_allocation_lookthrough(ppm)
-        diffs = port_alloc.merge(model_alloc, on="PORT_ID", how="left")
+        diffs = port_alloc.merge(model_alloc, on="port_id", how="left")
 
-        w_cash_now = float(cash_rows["WEIGHT"].sum() or 0.0)
-        w_cash_model = float(diffs["AA_CASH_MODEL"].iloc[0])
+        w_cash_now = float(cash_rows["weight"].sum() or 0.0)
+        w_cash_model = float(diffs["aa_cash_model"].iloc[0])
         w_over = max(0.0, w_cash_now - w_cash_model)
         if w_over <= self.eps:
             return pd.DataFrame(columns=self.recommendations.columns)
 
-        total_value = float(ports.df_out["VALUE"].sum())
+        total_value = float(ports.df_out["value"].sum())
         if w_cash_now <= self.eps_tiny:
             return pd.DataFrame(columns=self.recommendations.columns)
 
-        cash_map = ports.product_mapping[ports.product_mapping["SYMBOL"] == "CASH PROXY"][
-            ["PRODUCT_ID", "SRC_SHARECODES", "DESK", "PORT_TYPE", "CURRENCY"]
+        cash_map = ports.product_mapping[ports.product_mapping["symbol"] == "CASH PROXY"][
+            ["product_id", "src_sharecodes", "desk", "port_type", "currency"]
         ]
 
         pairs = []
         for _, r in cash_rows.iterrows():
-            share = float(r["WEIGHT"]) / w_cash_now
+            share = float(r["weight"]) / w_cash_now
             move_w = w_over * share
             amt_sell = - move_w * total_value
 
@@ -676,32 +672,32 @@ class Rebalancer:
                 continue
 
             sell_row = pd.DataFrame([{
-                "PORT_ID":        r["PORT_ID"],
-                "PRODUCT_ID":     r["PRODUCT_ID"],
-                "SRC_SHARECODES": r["SRC_SHARECODES"],
-                "DESK":           r["DESK"],
-                "PORT_TYPE":      r["PORT_TYPE"],
-                "CURRENCY":       r.get("CURRENCY", np.nan),
-                "VALUE":          r.get("VALUE", np.nan),
-                "WEIGHT":         r.get("WEIGHT", np.nan),
-                "FLAG":           "cash_overweight",  # hardcoded
-                "EXPECTED_WEIGHT": (r.get("WEIGHT", np.nan) - move_w) if pd.notna(r.get("WEIGHT", np.nan)) else np.nan,
-                "ACTION":         "sell",
-                "AMOUNT":         amt_sell,
+                "port_id":        r["port_id"],
+                "product_id":     r["product_id"],
+                "src_sharecodes": r["src_sharecodes"],
+                "desk":           r["desk"],
+                "port_type":      r["port_type"],
+                "currency":       r.get("currency", np.nan),
+                "value":          r.get("value", np.nan),
+                "weight":         r.get("weight", np.nan),
+                "flag":           "cash_overweight",  # hardcoded
+                "expected_weight": (r.get("weight", np.nan) - move_w) if pd.notna(r.get("weight", np.nan)) else np.nan,
+                "action":         "sell",
+                "amount":         amt_sell,
             }])
 
             # funding buy (CASH PROXY) 1:1 for this sell row
-            funding_buy = sell_row[["PORT_ID","CURRENCY","AMOUNT"]].copy()
-            funding_buy["AMOUNT"] = -funding_buy["AMOUNT"]
-            funding_buy = funding_buy.merge(cash_map, on="CURRENCY", how="left")
-            funding_buy["VALUE"] = np.nan
-            funding_buy["WEIGHT"] = np.nan
-            funding_buy["FLAG"] = "cash_overweight_to_proxy"  # hardcoded
-            funding_buy["EXPECTED_WEIGHT"] = np.nan
-            funding_buy["ACTION"] = "funding"
+            funding_buy = sell_row[["port_id","currency","amount"]].copy()
+            funding_buy["amount"] = -funding_buy["amount"]
+            funding_buy = funding_buy.merge(cash_map, on="currency", how="left")
+            funding_buy["value"] = np.nan
+            funding_buy["weight"] = np.nan
+            funding_buy["flag"] = "cash_overweight_to_proxy"  # hardcoded
+            funding_buy["expected_weight"] = np.nan
+            funding_buy["action"] = "funding"
             funding_buy = funding_buy[
-                ["PORT_ID","PRODUCT_ID","SRC_SHARECODES","DESK","PORT_TYPE","CURRENCY",
-                 "VALUE","WEIGHT","FLAG","EXPECTED_WEIGHT","ACTION","AMOUNT"]
+                ["port_id","product_id","src_sharecodes","desk","port_type","currency",
+                 "value","weight","flag","expected_weight","action","amount"]
             ]
 
             # assign IDs inline
@@ -711,14 +707,14 @@ class Rebalancer:
             n = len(sell_row)
             start = self._txn_seq + 1
             self._txn_seq += n
-            sell_row["BATCH_NO"] = batch_no
-            sell_row["TRANSACTION_NO"] = list(range(start, start + n))
+            sell_row["batch_no"] = batch_no
+            sell_row["transaction_no"] = list(range(start, start + n))
 
             n2 = len(funding_buy)
             start2 = self._txn_seq + 1
             self._txn_seq += n2
-            funding_buy["BATCH_NO"] = batch_no
-            funding_buy["TRANSACTION_NO"] = list(range(start2, start2 + n2))
+            funding_buy["batch_no"] = batch_no
+            funding_buy["transaction_no"] = list(range(start2, start2 + n2))
 
             cols = list(self.recommendations.columns)
             for dfp in (sell_row, funding_buy):

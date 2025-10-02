@@ -20,6 +20,7 @@ def get_latest_eom():
     eom = today.replace(day=1) + pd.offsets.MonthEnd(-1)
     return str(eom.date())
 
+
 def convert_portfolio_to_df(portfolio: Portfolio) -> pd.DataFrame:
     # Convert Pydantic models to dicts with frontend aliases to ensure proper columns
     rows = [p.model_dump(by_alias=True) for p in portfolio.positions]
@@ -36,6 +37,5 @@ def convert_portfolio_to_df(portfolio: Portfolio) -> pd.DataFrame:
     }
     df = df.rename(columns=column_mapping)
     return df
-
 if __name__ == "__main__":
     print(get_latest_eom())

@@ -10,14 +10,14 @@ warnings.filterwarnings("ignore")
 
 class PortpropMatrices():
     def __init__(self, ref_dict: dict = None):
-        self.set_portprop_ref_tables(ref_dict)
-
+        self.set_ref_tables(ref_dict)
         self.cal_ret_cov()
+        
         self.asset_class_list = ['aa_alt', 'aa_cash', 'aa_fi', 'aa_ge', 'aa_le']
         self.equity_geography_list = ['em', 'europe', 'japan', 'us', 'other']
         self.df_out_join = None
 
-    def set_portprop_ref_tables(self, ref_dict: dict):
+    def set_ref_tables(self, ref_dict: dict):
 
         # Set DataFrames with validation
         self.df_port_fs = None if 'portprop_factsheet' not in ref_dict else ref_dict['portprop_factsheet']
