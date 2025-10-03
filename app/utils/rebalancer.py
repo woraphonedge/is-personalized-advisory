@@ -1,6 +1,9 @@
 import warnings
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+
+from .portfolios import Portfolios
 
 
 class Rebalancer:
@@ -29,7 +32,7 @@ class Rebalancer:
         offshore_percent: float | None = None,
         product_restriction: list[str] | None = None,
         discretionary_acceptance: float | None = None,
-        
+
         # -------- params --------
         eps: float = 1e-8,
         eps_tiny: float = 1e-12,
@@ -41,7 +44,7 @@ class Rebalancer:
         min_weight_per_row: float = 0.0,
         min_mandate_amount: float = 1_000_000.0,
     ) -> None:
-        
+
         self.as_of_date = (
             pd.Timestamp.today().normalize().replace(day=1) - pd.Timedelta(days=1)
         ).strftime("%Y-%m-%d") if as_of_date is None else as_of_date
@@ -95,9 +98,9 @@ class Rebalancer:
     def set_ref_tables(self, ref_dict: dict):
         """Reload cached reference tables (if you expect DB to have changed)."""
         # Set DataFrames with validation
-        self.es_sell_list = None if "es_sell_list" not in ref_dict else ref_dict["es_sell_list"] 
-        self.product_recommendation_rank_raw = None if "product_recommendation_rank_raw" not in ref_dict else ref_dict["product_recommendation_rank_raw"] 
-        self.mandate_allocation = None if "mandate_allocation" not in ref_dict else ref_dict["mandate_allocation"] 
+        self.es_sell_list = None if "es_sell_list" not in ref_dict else ref_dict["es_sell_list"]
+        self.product_recommendation_rank_raw = None if "product_recommendation_rank_raw" not in ref_dict else ref_dict["product_recommendation_rank_raw"]
+        self.mandate_allocation = None if "mandate_allocation" not in ref_dict else ref_dict["mandate_allocation"]
 
         # Validate required elements
         required_elements = {
@@ -107,7 +110,7 @@ class Rebalancer:
         }
         for key, value in required_elements.items():
             if value is None:
-                warnings.warn(f"'{key}' not provided. Expect errors if used.")
+                warnings.warn(f"'{key}' not provided. Expect errors if used.", UserWarning, stacklevel=2)
 
     def get_product_recommendation_rank(self, ports) -> pd.DataFrame:
         """Merge the (preloaded) recommendation rank with current product mapping."""
@@ -375,7 +378,7 @@ class Rebalancer:
 
         if not trades:
             return pd.DataFrame(columns=self.recommendations.columns)
-        
+
         trade = pd.concat(trades, ignore_index=True)
         self.update_portfolio(ports, trade)
         return trade
@@ -404,8 +407,8 @@ class Rebalancer:
            single-line cap self.single_line_cap_non_mandate (for non-mandates).
         """
         product_recommendation_rank = self.get_product_recommendation_rank(ports)
-        
-        ## Comment: Why we dont use self.mandate_allocation instead of creating 
+
+        ## Comment: Why we dont use self.mandate_allocation instead of creating
         # new variables mandates, it is easier to track.
         mandates = self.mandate_allocation
 
@@ -416,7 +419,7 @@ class Rebalancer:
             "aa_ge_diff": "Global Equity",
             "aa_alt_diff": "Alternative",
         }
-    
+
         buys = []
         total_value = float(ports.df_out["value"].sum())
 
@@ -443,7 +446,7 @@ class Rebalancer:
                     break
                 fund_ccy = cash_buckets.iloc[i]["currency"]
                 cash_w_ccy = float(cash_buckets.iloc[i]["weight"] or 0.0)
-                
+
                 add_w = min(mandate_headroom, cash_w_ccy, abs_under)
                 amt = add_w * total_value
 
@@ -559,7 +562,7 @@ class Rebalancer:
 
                 candidates = (
                     cand.merge(df_out, on="src_sharecodes", how="left", suffixes=("", "_port"))
-                       .fillna({"value": 0.0, "weight": 0.0})
+                        .fillna({"value": 0.0, "weight": 0.0})
                 )
 
                 if candidates.empty:
@@ -590,7 +593,7 @@ class Rebalancer:
                     ]
                 ]
                 cash_proxy = self.build_cash_proxy_funding(ports, chosen, per_row=True)
-                
+
                 # assign IDs inline
                 self._batch_seq += 1
                 batch_no = self._batch_seq
@@ -696,8 +699,10 @@ class Rebalancer:
             funding_buy["expected_weight"] = np.nan
             funding_buy["action"] = "funding"
             funding_buy = funding_buy[
-                ["port_id","product_id","src_sharecodes","desk","port_type","currency",
-                 "value","weight","flag","expected_weight","action","amount"]
+                [
+                    "port_id","product_id","src_sharecodes","desk","port_type","currency",
+                    "value","weight","flag","expected_weight","action","amount"
+                ]
             ]
 
             # assign IDs inline
@@ -757,10 +762,10 @@ class Rebalancer:
                 self.recommendations = pd.concat([self.recommendations, buys], ignore_index=True)
 
             return self.recommendations
-        
+
         except Exception as e:
             print(e)
             # if not self.recommendations.empty:
             #     return self.recommendations
-            
+
             return pd.DataFrame(columns=self.recommendations.columns)
