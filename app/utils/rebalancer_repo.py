@@ -1,10 +1,6 @@
-import os
-
 import pandas as pd
 
-from .utils import get_latest_eom
 from .data_loader import DataLoader
-
 
 
 class RebalancerRepository:
@@ -14,16 +10,16 @@ class RebalancerRepository:
 
     def load_es_sell_list(self) -> pd.DataFrame:
 
-        query = f"""
+        query = """
             SELECT symbol
-            FROM user.kwm.personalized_advisory_es_sell_list 
-            WHERE upper(RECOMMENDATION) like '%SELL%' 
-               OR upper(RECOMMENDATION) like '%SWITCH%'
+            FROM user.kwm.personalized_advisory_es_sell_list
+            WHERE upper(RECOMMENDATION) like '%SELL%'
+            OR upper(RECOMMENDATION) like '%SWITCH%'
         """
         # prep cache file
-        cache_file = f"rebalancer_es_sell_list.parquet"
+        cache_file = "rebalancer_es_sell_list.parquet"
 
-         # prep type dict
+        # prep type dict
         type_dict = {"symbol": "string"}
 
         return self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
@@ -43,15 +39,15 @@ class RebalancerRepository:
             "SYMBOL",
             "SRC_SHARECODES",
         ]
-
+        cols = ', '.join(dim_column_select)
         query = f"""
-            select {', '.join(dim_column_select)}
+            select {cols}
             from user.kwm.personalized_advisory_recommendation_rank
             """
         # prep cache file
-        cache_file = f"rebalancer_product_recommendation_rank_raw.parquet"
+        cache_file = "rebalancer_product_recommendation_rank_raw.parquet"
 
-         # prep type dict
+        # prep type dict
         type_dict = {
             "product_type_code": "string",
             "product_type_desc": "string",
@@ -77,22 +73,23 @@ class RebalancerRepository:
             "MEMBEROF", "PRODUCT_TYPE_DESC", "GEOGRAPHY", "expected_return", "hedging_cost_flag", "asset_class_name",
             "pp_asset_sub_class", "AA_CASH", "AA_FI", "AA_LE", "AA_GE", "AA_ALT"
         ]
-        
+
         # prep query
+        cols = ', '.join(dim_column_select)
         query = f"""
-            SELECT DISTINCT {', '.join(dim_column_select)}
+            SELECT DISTINCT {cols}
             FROM user.kwm.personalized_advisory_asset_allocation_weight
         """
-           
+
         # prep cache file
-        cache_file = f"rebalancer_mandate_candidates.parquet"
+        cache_file = "rebalancer_mandate_candidates.parquet"
 
         # prep type dict
         type_dict = {
             "pp_asset_sub_class_code": "string",
             "symbol": "string",
             "currency": "string",
-            "as_of_date": "datetime64[ns]",   
+            "as_of_date": "datetime64[ns]",
             "product_id": "string",
             "port_type": "string",
             "desk": "string",
@@ -125,5 +122,5 @@ class RebalancerRepository:
         for c in ["aa_cash","aa_fi","aa_le","aa_ge","aa_alt"]:
             mandate_candidates[c] = pd.to_numeric(mandate_candidates[c], errors="coerce").fillna(0.0)
 
-      
+
         return mandate_candidates

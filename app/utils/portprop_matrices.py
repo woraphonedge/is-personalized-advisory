@@ -1,6 +1,4 @@
-import os
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,15 +8,16 @@ warnings.filterwarnings("ignore")
 
 class PortpropMatrices():
     def __init__(self, ref_dict: dict = None):
+        if ref_dict is None:
+            ref_dict = {}
         self.set_ref_tables(ref_dict)
         self.cal_ret_cov()
-        
+
         self.asset_class_list = ['aa_alt', 'aa_cash', 'aa_fi', 'aa_ge', 'aa_le']
         self.equity_geography_list = ['em', 'europe', 'japan', 'us', 'other']
         self.df_out_join = None
 
     def set_ref_tables(self, ref_dict: dict):
-
         # Set DataFrames with validation
         self.df_port_fs = None if 'portprop_factsheet' not in ref_dict else ref_dict['portprop_factsheet']
         self.df_port_fb =  None if 'portprop_fallback' not in ref_dict else ref_dict['portprop_fallback']
@@ -26,7 +25,7 @@ class PortpropMatrices():
         self.df_ge_mapping =  None if 'portprop_ge_mapping' not in ref_dict else ref_dict['portprop_ge_mapping']
         self.df_port_ret =  None if 'portprop_ret_eow' not in ref_dict else ref_dict['portprop_ret_eow']
         self.df_model =  None if 'advisory_health_score' not in ref_dict else ref_dict['advisory_health_score']
-        
+
         # Validate required elements
         required_elements = {
             "df_port_fs": self.df_port_fs,
@@ -38,14 +37,16 @@ class PortpropMatrices():
         }
         for key, value in required_elements.items():
             if value is None:
-                warnings.warn(f"'{key}' not provided. Expect errors if used.")
+                warnings.warn(f"'{key}' not provided. Expect errors if used.", UserWarning, stacklevel=2)
 
 
     def cal_ret_cov(self):
-        df_ret_pivot = self.df_port_ret.pivot_table(index='return_date'
-                                               , columns='bm_name'
-                                               , values='return'
-                                               , aggfunc='sum')
+        df_ret_pivot = self.df_port_ret.pivot_table(
+            index='return_date',
+            columns='bm_name',
+            values='return',
+            aggfunc='sum'
+        )
         self.df_ret_cov = df_ret_pivot.cov()
 
     def cal_df_out_join_bm(self, ports):
@@ -164,7 +165,7 @@ class PortpropMatrices():
                                         , right_on='model_name'
                                         , suffixes=['','_model']
                                         , how='left')
-        model_allocation[self.asset_class_list] = model_allocation[self.asset_class_list]         
+        model_allocation[self.asset_class_list] = model_allocation[self.asset_class_list]
         asset_class_model_map = {x: x + '_model' for x in self.asset_class_list}
         model_allocation = model_allocation.rename(columns=asset_class_model_map)
         select_columns = ['port_id', 'port_investment_style', 'portpop_styles'] \
@@ -296,10 +297,13 @@ class PortpropMatrices():
             .merge(df_exp_ret, on='port_id', how='left') \
             .merge(df_astc_alloc, on='port_id', how='left') \
             .merge(df_ge_alloc, on='port_id', how='left')\
-            .merge(self.df_model, left_on='portpop_styles'
-                   , right_on='model_name'
-                   , suffixes=['','_model']
-                   , how='left')
+            .merge(
+                self.df_model,
+                left_on='portpop_styles',
+                right_on='model_name',
+                suffixes=['','_model'],
+                how='left'
+            )
         df_port_matrix = df_port_matrix.fillna(0)
 
         join_key = ['port_id'] + ports.prod_comp_keys
