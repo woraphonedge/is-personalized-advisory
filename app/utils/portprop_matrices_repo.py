@@ -1,10 +1,6 @@
-import os
-
 import pandas as pd
 
-from .utils import get_latest_eom
 from .data_loader import DataLoader
-
 
 
 class PortpropMatricesRepository:
@@ -85,10 +81,10 @@ class PortpropMatricesRepository:
     def load_advisory_health_score(self) -> pd.DataFrame:
         query = """
             SELECT expected_return, expected_return_w_hedging_cost, volatility, var99,
-                   AA_cash, AA_fi, AA_le, AA_ge, AA_alt,
-                   CUR_usd, CUR_eur, CUR_jpy, CUR_thb, CUR_other,
-                   GE_US, GE_EUR, GE_JP, GE_EM, GE_Other,
-                   model_name
+                AA_cash, AA_fi, AA_le, AA_ge, AA_alt,
+                CUR_usd, CUR_eur, CUR_jpy, CUR_thb, CUR_other,
+                GE_US, GE_EUR, GE_JP, GE_EM, GE_Other,
+                model_name
             FROM user.edg.advisory_health_score
         """
         cache_file = "portprop_advisory_model.parquet"
@@ -119,5 +115,5 @@ class PortpropMatricesRepository:
         # transform % columns from 0-100 to 0-1
         float_cols = bm.select_dtypes(include=["float64"]).columns
         bm[float_cols] = bm[float_cols] / 100
-        
+
         return bm

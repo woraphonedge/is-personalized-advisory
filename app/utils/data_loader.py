@@ -1,12 +1,11 @@
 # utils/data_loader.py
 import os
-from pathlib import Path
 import warnings
-from sqlalchemy import create_engine
+from pathlib import Path
 
-import pandas as pd
 import numpy as np
-
+import pandas as pd
+from sqlalchemy import create_engine
 
 warnings.filterwarnings("ignore", message=".*_user_agent_entry.*")
 
@@ -16,14 +15,14 @@ class DataLoader:
             self.load_from_db = str(os.getenv("LOAD_DATA_FROM_DWH", "")).strip().lower() in {"1", "true", "yes"}
         else:
             self.load_from_db = load_from_db
-        
+
     def get_databricks_engine(self):
         ACCESS_TOKEN = os.getenv("DATABRICKS_ACCESS_TOKEN")
         HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
         SERVER_HOSTNAME = os.getenv("DATABRICKS_SERVER_HOSTNAME")
         conn_str = f"databricks://token:{ACCESS_TOKEN}@{SERVER_HOSTNAME}?http_path={HTTP_PATH}"
         return create_engine(conn_str)
-    
+
     def get_data_dir(self) -> Path:
         """Return the path to the project's data directory, creating it if needed."""
         # utils/ -> parent is personalized_advisory/, then 'data'
@@ -49,18 +48,18 @@ class DataLoader:
         """Read a Parquet file from data/ and return a DataFrame."""
         path = self.get_data_dir() / filename
         return pd.read_parquet(path)
-    
+
 
     def load_data(self, type_dict: dict = None, **kwargs) -> pd.DataFrame:
         query = kwargs['query']
-        cache_file = kwargs['cache_file'] 
+        cache_file = kwargs['cache_file']
 
         if self.load_from_db:
             try:
                 df = self.read_sql(query)
             except Exception as e:
                 print(f"[{self.__class__.__name__}] Error: failed to execute query {query}: {e}")
-             
+
             try:
                 self.write_parquet(df, cache_file)
             except Exception as e:

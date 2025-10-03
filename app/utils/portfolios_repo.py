@@ -1,10 +1,7 @@
-import os
-
 import pandas as pd
 
-from .utils import get_latest_eom
 from .data_loader import DataLoader
-
+from .utils import get_latest_eom
 
 
 class PortfoliosRepository:
@@ -12,9 +9,9 @@ class PortfoliosRepository:
         self.data_loader = data_loader
 
     def load_client_out_product_enriched(
-        self, 
-        as_of_date: str = "", 
-        filter_query: str = "", 
+        self,
+        as_of_date: str = "",
+        filter_query: str = "",
         value_column: str = "AUMX_THB"
     ) -> pd.DataFrame:
 
@@ -45,13 +42,13 @@ class PortfoliosRepository:
             filter_query = "where " + filter_query
         # prep query
         query = f"""
-            SELECT {', '.join(dim_column_select)}, 
+            SELECT {', '.join(dim_column_select)},
                 sum({value_column}) as VALUE
             FROM user.kwm.client_health_score_outstanding_range('{as_of_date}','{as_of_date}')
             {filter_query}
             GROUP BY {', '.join(dim_column_select)}
         """
-        
+
         # prep cache file
         cache_file = f"portfolios_client_out_enriched_{as_of_date}.parquet"
 
@@ -85,9 +82,9 @@ class PortfoliosRepository:
 
     def load_client_style(
     # TODO: may be it need to create cal function in local
-        self, 
-        as_of_date: str, 
-        and_query: str = "", 
+        self,
+        as_of_date: str,
+        and_query: str = "",
         style_column: str = "INVESTMENT_STYLE_AUMX"
     ) -> pd.DataFrame:
         if and_query != "":
@@ -95,7 +92,7 @@ class PortfoliosRepository:
 
         dim_column_select = ['customer_id', 'as_of_date']
         where_query = f"WHERE AS_OF_DATE between '{as_of_date}' and '{as_of_date}' {and_query}"
-        
+
         # prep query
         query = f"""
             SELECT  {', '.join(dim_column_select)}
@@ -119,11 +116,11 @@ class PortfoliosRepository:
         return styles
 
     def load_product_mapping(self, as_of_date: str = '') -> pd.DataFrame:
-     
+
         if as_of_date == '':
             as_of_date = get_latest_eom()
 
-        dim_column_select = ['product_id', 
+        dim_column_select = ['product_id',
             'src_sharecodes',
             'desk',
             'port_type',
@@ -157,13 +154,13 @@ class PortfoliosRepository:
             FROM user.kwm.personalized_advisory_asset_allocation_weight
             )
         """
-       
+
         # prep cache file
         cache_file = f"portfolios_product_mapping_{as_of_date}.parquet"
 
         # prep type dict
         type_dict = {
-                        'product_id': "string", 
+                        'product_id': "string",
                         'src_sharecodes': "string",
                         'desk': "string",
                         'port_type': "string",
@@ -188,26 +185,26 @@ class PortfoliosRepository:
         product_mapping['coverage_prdtype'] = product_mapping['coverage_prdtype'].fillna('N/A')
 
         return product_mapping
-    
+
     def load_product_underlying(self) -> pd.DataFrame:
 
-        dim_column_select = ['product_id', 
+        dim_column_select = ['product_id',
             'underlying_company'
         ]
-        
+
         # prep query
         query = f"""
             SELECT DISTINCT {', '.join(dim_column_select)}
             FROM edp.kkps_vw.v_npii_prod_undlycomp_map
             WHERE DATA_DT = (select max(DATA_DT) from edp.kkps_vw.v_npii_prod_undlycomp_map)
         """
-       
+
         # prep cache file
-        cache_file = f"portfolios_underlying_mapping.parquet"
+        cache_file = "portfolios_underlying_mapping.parquet"
 
         # prep type dict
         type_dict = {
-                        'product_id': "string", 
+                        'product_id': "string",
                         'underlying_company': "string",
                     }
         product_underlying = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
@@ -215,7 +212,7 @@ class PortfoliosRepository:
 
 
         return product_underlying
-    
+
 if __name__ == "__main__":
     repo = PortfoliosRepository(data_loader=DataLoader())
     df = repo.load_product_mapping()
