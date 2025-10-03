@@ -1,6 +1,12 @@
 """
 Centralized in-memory data store for the backend. Uses a FastAPI lifespan
 initializer to populate data at startup.
+
+This module wires together the overhauled utils using the repository pattern:
+- `DataLoader` controls whether to pull from DB or local parquet cache via env.
+- `PortfoliosRepository` loads client outputs/styles and product reference tables.
+- `PortpropMatricesRepository` loads PortProp and advisory model reference tables.
+- `Portfolios`, `PortpropMatrices`, `HealthScore`, `Rebalancer` provide core logic.
 """
 
 from __future__ import annotations
@@ -9,9 +15,12 @@ from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from app.models import Position
+from app.utils.data_loader import DataLoader
 from app.utils.health_score import HealthScore
 from app.utils.portfolios import Portfolios
+from app.utils.portfolios_repo import PortfoliosRepository
 from app.utils.portprop_matrices import PortpropMatrices
+from app.utils.portprop_matrices_repo import PortpropMatricesRepository
 from app.utils.rebalancer import Rebalancer
 
 # Module-level caches populated during app lifespan
@@ -22,15 +31,36 @@ port_ids_loaded = None
 port_id_mapping_loaded = None
 
 discretionary_acceptance = 0.4
-as_of_date = "2025-07-31"
-customer_id = 15689
+as_of_date = "2025-08-31"
 
 
+loader = DataLoader()
+
+# Repositories
+ports_repo = PortfoliosRepository(loader)
+ppm_repo = PortpropMatricesRepository(loader)
+
+# Reference dictionaries
+ports_ref_table = {
+    "product_mapping": ports_repo.load_product_mapping(as_of_date=as_of_date),
+    "product_underlying": ports_repo.load_product_underlying(),
+}
+
+ppm_ref_dict = {
+    "portprop_factsheet": ppm_repo.load_portprop_factsheet(),
+    "portprop_fallback": ppm_repo.load_portprop_fallback(),
+    "portprop_benchmark": ppm_repo.load_portprop_benchmark(),
+    "portprop_ge_mapping": ppm_repo.load_portprop_ge_mapping(),
+    "portprop_ret_eow": ppm_repo.load_portprop_ret_eow(),
+    "advisory_health_score": ppm_repo.load_advisory_health_score(),
+}
+
+# Core singletons
 ports = Portfolios()
-ppm = PortpropMatrices()
+ports.set_ref_tables(ports_ref_table)
+ppm = PortpropMatrices(ppm_ref_dict)
 hs = HealthScore()
 rb = Rebalancer(discretionary_acceptance=discretionary_acceptance)
-ports.load_product_mapping(as_of_date)
 
 
 def load_data() -> None:
@@ -133,36 +163,27 @@ def get_candidate_data() -> List[Position]:
 
 
 def prepare_portfolio_data() -> None:
-    """Load portfolio outputs and styles into the shared `ports` object.
+    """Load client portfolio outputs/styles and set `ports`.
 
-    Populates module-level DataFrames `df_out_loaded`, `df_style_loaded`, and id mappings
-    to be reused by API handlers requiring the Portfolios structure.
+    Uses new repository loaders consistent with the sample notebook usage.
     """
     global df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded
 
-    # Pull client positions and style as of configured date
-    where_clause = f"WHERE CUSTOMER_ID = {customer_id}"
-    styles_and = f"AND CUSTOMER_ID = {customer_id}"
-    df_out_raw = ports.get_client_out_from_query(
-        as_of_date, as_of_date, where_query=where_clause
+    # Load all client positions and styles as of configured date
+    df_out_raw = ports_repo.load_client_out_product_enriched(
+        as_of_date=as_of_date,
+        value_column="AUMX_THB",
     )
-    df_style_raw = ports.get_client_style_from_query(
-        as_of_date, as_of_date, and_query=styles_and
+    df_style_raw = ports_repo.load_client_style(
+        as_of_date=as_of_date,
+        style_column="INVESTMENT_STYLE_AUMX",
     )
 
-    # Map product info and create portfolio ids
-    df_out_loaded = ports.map_client_out_prod_info(df_out_raw)
-    df_style_loaded = df_style_raw
-    df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded = (
-        ports.create_portfolio_id(
-            df_out_loaded,
-            df_style_loaded,
-            column_mapping=["AS_OF_DATE", "CUSTOMER_ID"],
-        )
+    # Create portfolio ids by ['as_of_date','customer_id'] and set portfolio
+    df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded = ports.create_portfolio_id(
+        df_out_raw.copy(), df_style_raw.copy(), column_mapping=["as_of_date", "customer_id"]
     )
-    ports.set_portfolio(
-        df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded
-    )
+    ports.set_portfolio(df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded)
 
 
 @asynccontextmanager
@@ -172,6 +193,9 @@ async def lifespan(app):
     # Best-effort to prepare portfolio data; keep app starting even if DB not reachable
     try:
         # Expose shared singletons and preloaded data via app.state
+        app.state.loader = loader
+        app.state.ports_repo = ports_repo
+        app.state.ppm_repo = ppm_repo
         app.state.ports = ports
         app.state.ppm = ppm
         app.state.hs = hs

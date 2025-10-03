@@ -1,5 +1,3 @@
-import os
-
 from app.utils.utils import get_latest_eom, read_sql, write_parquet
 
 # Export tables from DWH to local data/ parquet files
@@ -40,8 +38,14 @@ def export_product_mapping(as_of_date: str) -> int:
 
 
 def main() -> int:
-    # Read AS_OF_DATE from environment (.env loaded via utils.utils)
-    as_of_date = (os.getenv("AS_OF_DATE") or "").strip() or get_latest_eom()
+    # Prompt for AS_OF_DATE via stdin with default to latest EOM to avoid env dependency
+    default_eom = get_latest_eom()
+    try:
+        user_in = input(f"AS_OF_DATE (YYYY-MM-DD) [default {default_eom}]: ").strip()
+        as_of_date = user_in or default_eom
+    except EOFError:
+        # Non-interactive mode: fall back to default
+        as_of_date = default_eom
 
     try:
         df_es = read_sql(ES_SELL_SQL)

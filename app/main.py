@@ -24,6 +24,12 @@ from fastapi import FastAPI, HTTPException
 
 load_dotenv()
 
+# Configure logging early so import-time logs from app modules respect LOG_LEVEL
+level_name = os.getenv("LOG_LEVEL", "DEBUG").upper()
+level = getattr(logging, level_name, logging.DEBUG)
+logging.basicConfig(level=level)
+logger = logging.getLogger(__name__)
+
 from .data_store import (
     lifespan,
 )
@@ -38,9 +44,13 @@ from .models import (
 from .utils.rebalancer_mock import compute_portfolio_health, propose_rebalance
 from .utils.utils import convert_portfolio_to_df
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 app = FastAPI(title="Investment Rebalancing API", lifespan=lifespan)
+
+
+@app.get("/health")
+def health_check():
+    """Lightweight health check endpoint."""
+    return {"status": "ok"}
 
 
 @app.post("/api/v1/rebalance_mock", response_model=RebalanceResponse)
