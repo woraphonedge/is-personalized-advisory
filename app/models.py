@@ -19,6 +19,8 @@ class Position(BaseModel):
     # still using snake_case internally. With populate_by_name enabled, both
     # formats are accepted during validation.
     product_id: Optional[str] = Field(alias="productId")
+    desk: Optional[str] = Field(default=None, alias="desk")
+    port_type: Optional[str] = Field(default=None, alias="portType")
     src_symbol: str = Field(alias="symbol")
     asset_class: str = Field(
         alias="assetClass",
@@ -33,6 +35,7 @@ class Position(BaseModel):
         alias="marketValue",
         description="Explicit market value in THB. When provided by certain APIs (e.g., health-score), prefer this over unit_bal * unit_price_thb without relying on units/prices.",
     )
+    currency: Optional[str] = Field(default=None, alias="currency")
 
     expected_return: float = Field(
         alias="expectedReturn",
@@ -47,9 +50,18 @@ class Position(BaseModel):
         alias="volatility",
         description="Annualised standard deviation (decimal fraction)",
     )
+    product_type_desc: Optional[str] = Field(default=None, alias="productTypeDesc")
+    coverage_prdtype: Optional[str] = Field(default=None, alias="coveragePrdtype")
     is_monitored: bool = Field(
         alias="isMonitored", description="Whether the position is monitored"
     )
+    is_risky_asset: Optional[bool] = Field(default=None, alias="isRiskyAsset")
+    is_coverage: Optional[bool] = Field(default=None, alias="isCoverage")
+    product_display_name: Optional[str] = Field(default=None, alias="productDisplayName")
+    es_core_port: Optional[bool] = Field(default=None, alias="isCorePort")
+    es_sell_list: Optional[str | None] = Field(default=None, alias="esSellList")
+    flag_top_pick: Optional[str | None] = Field(default=None, alias="flagTopPick")
+    flag_tax_saving: Optional[str | None] = Field(default=None, alias="flagTaxSaving")
     exposures: Optional[Dict[str, float]] = Field(
         default=None,
         alias="exposures",
@@ -61,6 +73,8 @@ class Position(BaseModel):
     # and preserve from_attributes and arbitrary_types_allowed behavior.
     model_config = ConfigDict(
         populate_by_name=True,
+        validate_by_alias=True,
+        extra="ignore",
         from_attributes=True,
         arbitrary_types_allowed=True,
     )
@@ -134,6 +148,10 @@ class Objective(BaseModel):
     target_alloc: Dict[str, float] = Field(
         description="Target allocation mapping from asset class to target weight (0.0-1.0)"
     )
+    client_style: Optional[str] = Field(
+        default=None,
+        description="Client investment style label (e.g., High Risk, Conservative)"
+    )
 
 
 class Constraints(BaseModel):
@@ -184,7 +202,7 @@ class ConstraintsV2(BaseModel):
 
 
 class RebalanceRequest(BaseModel):
-    customer_id: str
+    customer_id: int
     objective: Objective
     constraints: ConstraintsV2
     portfolio: Optional[Portfolio] = None
@@ -192,7 +210,7 @@ class RebalanceRequest(BaseModel):
 
 
 class HealthMetricsRequest(BaseModel):
-    customer_id: str
+    customer_id: int
     target_alloc: Dict[str, float]
     portfolio: Optional[Portfolio] = None
 

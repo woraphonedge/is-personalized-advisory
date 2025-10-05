@@ -200,10 +200,20 @@ async def lifespan(app):
         app.state.ppm = ppm
         app.state.hs = hs
         app.state.rb = rb
+        # Expose commonly used types/constants to avoid per-request imports
+        try:
+            from app.models import Portfolio as _Portfolio
+            from app.models import Position as _Position
+            app.state.Portfolio = _Portfolio
+            app.state.Position = _Position
+        except Exception:
+            # If models import fails at startup, routes can still import lazily
+            pass
+        app.state.AS_OF_DATE = as_of_date
         # Candidate purchase universe
         app.state.candidate_data = get_candidate_data()
         # Optionally prepare portfolio data if backend sources are reachable
-        # prepare_portfolio_data()
+        prepare_portfolio_data()
     except Exception as e:
         # Defer failures to request time; not fatal for server startup
         print(f"[startup] Skipped prepare_portfolio_data due to error: {e}")
