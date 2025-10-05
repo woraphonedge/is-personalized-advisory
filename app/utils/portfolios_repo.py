@@ -12,33 +12,32 @@ class PortfoliosRepository:
         self,
         as_of_date: str = "",
         filter_query: str = "",
-        value_column: str = "AUMX_THB"
+        value_column: str = "AUMX_THB",
     ) -> pd.DataFrame:
 
         dim_column_select = [
-            'customer_id',
-            'as_of_date',
-            'product_id',
-            'src_sharecodes',
-            'desk',
-            'port_type',
-            'currency',
-            'product_display_name',
-            'product_type_desc',
-            'asset_class_name',
-            'symbol',
-            'pp_asset_sub_class',
-            'is_risky_asset',
-            'coverage_prdtype',
-            'is_coverage',
-            'expected_return',
-            'es_core_port',
-            'es_sell_list',
-            'flag_top_pick',
-            'flag_tax_saving'
-
+            "customer_id",
+            "as_of_date",
+            "product_id",
+            "src_sharecodes",
+            "desk",
+            "port_type",
+            "currency",
+            "product_display_name",
+            "product_type_desc",
+            "asset_class_name",
+            "symbol",
+            "pp_asset_sub_class",
+            "is_risky_asset",
+            "coverage_prdtype",
+            "is_coverage",
+            "expected_return",
+            "es_core_port",
+            "es_sell_list",
+            "flag_top_pick",
+            "flag_tax_saving",
         ]
-        if filter_query!="":
+        if filter_query != "":
             filter_query = "where " + filter_query
         # prep query
         query = f"""
@@ -67,31 +66,35 @@ class PortfoliosRepository:
             "coverage_prdtype": "string",
             "is_coverage": "bool",
             "expected_return": "float64",
-            'es_core_port': "bool",
-            'es_sell_list': "string",
-            'flag_top_pick': "string",
-            'flag_tax_saving': "string",
+            "es_core_port": "bool",
+            "es_sell_list": "string",
+            "flag_top_pick": "string",
+            "flag_tax_saving": "string",
         }
 
-        ports = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
+        ports = self.data_loader.load_data(
+            type_dict, query=query, cache_file=cache_file
+        )
 
         # Fill missing values
-        ports['coverage_prdtype'] = ports['coverage_prdtype'].fillna('N/A')
+        ports["coverage_prdtype"] = ports["coverage_prdtype"].fillna("N/A")
 
         return ports
 
     def load_client_style(
-    # TODO: may be it need to create cal function in local
+        # TODO: may be it need to create cal function in local
         self,
         as_of_date: str,
         and_query: str = "",
-        style_column: str = "INVESTMENT_STYLE_AUMX"
+        style_column: str = "INVESTMENT_STYLE_AUMX",
     ) -> pd.DataFrame:
         if and_query != "":
             and_query = "and " + and_query
 
-        dim_column_select = ['customer_id', 'as_of_date']
-        where_query = f"WHERE AS_OF_DATE between '{as_of_date}' and '{as_of_date}' {and_query}"
+        dim_column_select = ["customer_id", "as_of_date"]
+        where_query = (
+            f"WHERE AS_OF_DATE between '{as_of_date}' and '{as_of_date}' {and_query}"
+        )
 
         # prep query
         query = f"""
@@ -111,33 +114,36 @@ class PortfoliosRepository:
             "port_investment_style": "string",
         }
 
-        styles = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
+        styles = self.data_loader.load_data(
+            type_dict, query=query, cache_file=cache_file
+        )
 
         return styles
 
-    def load_product_mapping(self, as_of_date: str = '') -> pd.DataFrame:
+    def load_product_mapping(self, as_of_date: str = "") -> pd.DataFrame:
 
-        if as_of_date == '':
+        if as_of_date == "":
             as_of_date = get_latest_eom()
 
-        dim_column_select = ['product_id',
-            'src_sharecodes',
-            'desk',
-            'port_type',
-            'currency',
-            'product_display_name',
-            'product_type_desc',
-            'asset_class_name',
-            'symbol',
-            'pp_asset_sub_class',
-            'is_risky_asset',
-            'coverage_prdtype',
-            'is_coverage',
-            'expected_return',
-            'es_core_port',
-            'es_sell_list',
-            'flag_top_pick',
-            'flag_tax_saving'
+        dim_column_select = [
+            "product_id",
+            "src_sharecodes",
+            "desk",
+            "port_type",
+            "currency",
+            "product_display_name",
+            "product_type_desc",
+            "asset_class_name",
+            "symbol",
+            "pp_asset_sub_class",
+            "is_risky_asset",
+            "coverage_prdtype",
+            "is_coverage",
+            "expected_return",
+            "es_core_port",
+            "es_sell_list",
+            "flag_top_pick",
+            "flag_tax_saving",
         ]
         ## TODO: Will nomalize this (maintain single source of truth in DWH)
         # prep query
@@ -160,37 +166,39 @@ class PortfoliosRepository:
 
         # prep type dict
         type_dict = {
-                        'product_id': "string",
-                        'src_sharecodes': "string",
-                        'desk': "string",
-                        'port_type': "string",
-                        "product_display_name": "string",
-                        "currency": "string",
-                        "product_type_desc": "string",
-                        "asset_class_name": "string",
-                        "symbol": "string",
-                        "pp_asset_sub_class": "string",
-                        "is_risky_asset": "bool",
-                        "coverage_prdtype": "string",
-                        "is_coverage": "bool",
-                        "expected_return": "float64",
-                        'es_core_port': "bool",
-                        'es_sell_list': "string",
-                        'flag_top_pick': "string",
-                        'flag_tax_saving': "string",
-                    }
-        product_mapping = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
+            "product_id": "string",
+            "src_sharecodes": "string",
+            "desk": "string",
+            "port_type": "string",
+            "product_display_name": "string",
+            "currency": "string",
+            "product_type_desc": "string",
+            "asset_class_name": "string",
+            "symbol": "string",
+            "pp_asset_sub_class": "string",
+            "is_risky_asset": "bool",
+            "coverage_prdtype": "string",
+            "is_coverage": "bool",
+            "expected_return": "float64",
+            "es_core_port": "bool",
+            "es_sell_list": "string",
+            "flag_top_pick": "string",
+            "flag_tax_saving": "string",
+        }
+        product_mapping = self.data_loader.load_data(
+            type_dict, query=query, cache_file=cache_file
+        )
 
         # Fill missing values
-        product_mapping['coverage_prdtype'] = product_mapping['coverage_prdtype'].fillna('N/A')
+        product_mapping["coverage_prdtype"] = product_mapping[
+            "coverage_prdtype"
+        ].fillna("N/A")
 
         return product_mapping
 
     def load_product_underlying(self) -> pd.DataFrame:
 
-        dim_column_select = ['product_id',
-            'underlying_company'
-        ]
+        dim_column_select = ["product_id", "underlying_company"]
 
         # prep query
         query = f"""
@@ -204,14 +212,15 @@ class PortfoliosRepository:
 
         # prep type dict
         type_dict = {
-                        'product_id': "string",
-                        'underlying_company': "string",
-                    }
-        product_underlying = self.data_loader.load_data(type_dict, query=query, cache_file=cache_file)
-
-
+            "product_id": "string",
+            "underlying_company": "string",
+        }
+        product_underlying = self.data_loader.load_data(
+            type_dict, query=query, cache_file=cache_file
+        )
 
         return product_underlying
+
 
 if __name__ == "__main__":
     repo = PortfoliosRepository(data_loader=DataLoader())

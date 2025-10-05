@@ -105,7 +105,7 @@ def compute_portfolio_health(
     asset_allocation: Dict[str, float] = {}
 
     score = 10.0
-    logger.debug(f"portfolio: {portfolio}")
+    # logger.debug(f"portfolio: {portfolio}")
     total = portfolio.total_value()
     if total <= 0:
         # Empty portfolio: return zeros and empty allocation, respecting models
