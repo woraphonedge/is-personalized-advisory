@@ -1,6 +1,6 @@
 import warnings
-import pandas as pd
 
+import pandas as pd
 
 warnings.filterwarnings("ignore")
 
@@ -45,7 +45,7 @@ class Portfolios:
         }
         for key, value in required_elements.items():
             if value is None:
-                warnings.warn(f"'{key}' not provided. Expect errors if used.")
+                warnings.warn(f"'{key}' not provided. Expect errors if used.", stacklevel=2)
 
 
     def map_client_out_prod_info(self, df_products):

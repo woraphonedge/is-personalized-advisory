@@ -19,17 +19,14 @@ def get_latest_eom():
 
 def convert_portfolio_to_df(portfolio: Portfolio) -> pd.DataFrame:
     # Convert Pydantic models to dicts with frontend aliases to ensure proper columns
-    rows = [p.model_dump(by_alias=True) for p in portfolio.positions]
+    rows = [p.model_dump(by_alias=False) for p in portfolio.positions]
+
     df = pd.DataFrame(rows)
-    df.columns = [col.upper() for col in df.columns]
-    logger.debug(f"columns: {df.columns}")
+    # df.columns = [col.upper() for col in df.columns]
+    # logger.debug(f"columns: {df.columns}")
     column_mapping = {
-        "POSDATE": "AS_OF_DATE",
-        "PRODUCTID": "PRODUCT_ID",
-        "SRC_SHARECODES": "SYMBOL",
-        "ASSETCLASS": "ASSET_CLASS_NAME",
-        "ASSETSUBCLASS": "PP_ASSET_SUB_CLASS",
-        "MARKETVALUE": "VALUE",
+        "mkt_val_thb": "value",
+        "asset_class": "asset_class_name"
     }
     df = df.rename(columns=column_mapping)
     return df

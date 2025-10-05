@@ -180,9 +180,6 @@ class ConstraintsV2(BaseModel):
 
     These map to the parameters of utils.rebalancer_v2.Rebalancer.__init__.
     """
-    discretionary_percent: float = Field(
-        0.5, description="Portfolio portion eligible for discretionary/mandate buys (0-1)"
-    )
     private_percent: float = Field(
         0.0, description="Portfolio portion eligible for private products (0-1)"
     )
@@ -195,8 +192,8 @@ class ConstraintsV2(BaseModel):
     product_restriction: Optional[List[str]] = Field(
         default=None, description="List of product symbols to exclude"
     )
-    discretionary_acceptance: Optional[float] = Field(
-        default=None,
+    discretionary_acceptance: float = Field(
+        default=0.4,
         description="Cap for total Mandate weight in portfolio (0-1). None -> no cap (treated as 1.0).",
     )
 
