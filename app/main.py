@@ -7,8 +7,8 @@ This API supports two primary endpoints:
 
 * `GET /portfolio/{customer_id}` returns the current portfolio for a customer.
 * `POST /rebalance` accepts a `RebalanceRequest` with configuration and
-  returns a rebalanced portfolio along with a log of actions and the new
-  health score.
+returns a rebalanced portfolio along with a log of actions and the new
+health score.
 
 The rebalancing logic is implemented in the `rebalancer` module.
 """
@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import os
 
-import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
@@ -29,7 +28,10 @@ load_dotenv()
 # Configure logging early so import-time logs from app modules respect LOG_LEVEL
 level_name = os.getenv("LOG_LEVEL", "DEBUG").upper()
 level = getattr(logging, level_name, logging.DEBUG)
-logging.basicConfig(level=level)
+logging.basicConfig(
+    level=level,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 from .data_store import (
@@ -44,7 +46,6 @@ from .models import (
     RebalanceResponse,
 )
 from .utils.rebalancer_mock import compute_portfolio_health, propose_rebalance
-from .utils.utils import convert_portfolio_to_df
 
 app = FastAPI(title="Investment Rebalancing API", lifespan=lifespan)
 
@@ -134,10 +135,29 @@ def rebalance_mock(request: RebalanceRequestMock) -> RebalanceResponse:
 @app.post("/api/v1/rebalance", response_model=RebalanceResponse)
 def rebalance(request: RebalanceRequest) -> RebalanceResponse:
     """Rebalance a customer’s portfolio based on the provided request."""
+    # Trace the incoming request at DEBUG level (safe to disable via LOG_LEVEL)
+    try:
+        logger.debug(
+            "rebalance request | customer_id=%s objective=%s constraints=%s has_portfolio=%s",
+            getattr(request, "customer_id", None),
+            getattr(request, "objective", None),
+            getattr(request, "constraints", None),
+            bool(getattr(request, "portfolio", None)),
+        )
+    except Exception:
+        # Never fail the request because of logging
+        pass
+
     try:
         from app.utils.rebalance_handler import perform_rebalance
         return perform_rebalance(app.state, request)
+    except HTTPException:
+        # Let already-classified errors pass through
+        raise
     except Exception as e:
+        # Log full traceback for server diagnostics
+        logger.exception("/api/v1/rebalance failed: %s", e)
+        # Surface the error message to client; details are in server logs
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
