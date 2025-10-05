@@ -1,0 +1,30 @@
+services:
+  advisory:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8100}:${PORT:-8100}"
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - PORT=${PORT:-8100}
+      - HOST=0.0.0.0
+      # Optional (if your Docker injects proxies into containers):
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - http_proxy=${HTTP_PROXY}
+      - https_proxy=${HTTPS_PROXY}
+      # Keep local/internal hosts off the proxy:
+      - NO_PROXY=localhost,127.0.0.1
+      - no_proxy=localhost,127.0.0.1
+    networks:
+      - kkps-network
+    restart: unless-stopped
+
+networks:
+  kkps-network:
+    external: true
