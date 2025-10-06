@@ -231,22 +231,58 @@ class RebalanceResponse(BaseModel):
 
 
 class HealthDetailMetrics(BaseModel):
+    """Detailed components matching the notebook's health score dataframe.
+
+    Columns reference from notebook output:
+    - expected_return, expected_return_model, score_ret
+    - volatility, volatility_model, score_vol
+    - score_portfolio_risk
+    - acd (asset class allocation distance), score_acd
+    - ged (global equity allocation distance), score_ged
+    - score_diversification
+    - score_bulk_risk
+    - score_issuer_risk
+    - score_non_cover_global_stock, score_non_cover_local_stock, score_non_cover_mutual_fund
+    - score_not_monitored_product
+    """
+
+    port_id: int | None = None
+
     expected_return: float
+    expected_return_model: float | None = None
+    score_ret: int | None = None
+
     volatility: float
-    max_drawdown: float
-    var95: float
-    cumulative_return_20y: float
-    annualized_return: float
-    backtest_returns: List[float]
-    asset_allocation: Dict[str, float]
+    volatility_model: float | None = None
+    score_vol: int | None = None
+
+    score_portfolio_risk: int | None = None
+
+    acd: float | None = None
+    score_acd: int | None = None
+
+    ged: float | None = None
+    score_ged: int | None = None
+
+    score_diversification: int | None = None
+    score_bulk_risk: int | None = None
+    score_issuer_risk: int | None = None
+
+    score_non_cover_global_stock: int | None = None
+    score_non_cover_local_stock: int | None = None
+    score_non_cover_mutual_fund: int | None = None
+    score_not_monitored_product: float | None = None
+
+    # Optional: include look-through allocation for convenience
+    asset_allocation: Dict[str, float] | None = None
 
 
 class HealthMetrics(BaseModel):
-    """Detailed metrics for portfolio health."""
+    """Health metrics aligned with notebook output.
 
-    sharpe_ratio: float
-    mismatch_penalty: float
-    bulk_penalty: float
-    not_monitored_penalty: float
-    score: float
+    We keep a top-level 'score' for compatibility with frontend usage, mapping to
+    the notebook's 'health_score'. All component details are in 'metrics'.
+    """
+
+    score: float = Field(description="Overall health score (mirrors notebook health_score)")
     metrics: HealthDetailMetrics

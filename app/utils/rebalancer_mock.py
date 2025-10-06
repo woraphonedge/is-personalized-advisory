@@ -10,8 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Tuple
 
-import numpy as np
-
 from ..config import BULK_THRESHOLD, CORRIDOR_WIDTH, MIN_SHARPE_RATIO
 from ..models import (
     HealthDetailMetrics,
@@ -92,41 +90,40 @@ def compute_portfolio_health(
     HealthMetrics
         Metrics object including 'score' (health score between 0 and 10) and components.
     """
-    # Mock other metrics
-    expected_return = np.random.uniform(0.0, 0.1)
-    volatility = np.random.uniform(0.0, 0.2)
-    max_drawdown = np.random.uniform(0.0, 0.1)
-    var95 = np.random.uniform(0.0, 0.1)
-    cumulative_return_20y = np.random.uniform(0.0, 0.1)
-    annualized_return = np.random.uniform(0.0, 0.1)
-    backtest_returns = []
-    # asset_allocation in HealthDetailMetrics expects Dict[str, float] of current weights
-    # We'll populate this later from actual portfolio weights; initialize empty here
-    asset_allocation: Dict[str, float] = {}
+    # Placeholders for fields we don't compute here (kept for schema compatibility)
+    expected_return_model = 0.0
+    volatility_model = 0.0
+    score_ret = 0
+    score_vol = 0
 
     score = 10.0
     # logger.debug(f"portfolio: {portfolio}")
     total = portfolio.total_value()
     if total <= 0:
-        # Empty portfolio: return zeros and empty allocation, respecting models
+        # Empty portfolio: return zeros and empty allocation
         detail = HealthDetailMetrics(
+            port_id=None,
             expected_return=0.0,
+            expected_return_model=expected_return_model,
+            score_ret=score_ret,
             volatility=0.0,
-            max_drawdown=0.0,
-            var95=0.0,
-            cumulative_return_20y=0.0,
-            annualized_return=0.0,
-            backtest_returns=[],
+            volatility_model=volatility_model,
+            score_vol=score_vol,
+            score_portfolio_risk=0,
+            acd=0.0,
+            score_acd=0,
+            ged=0.0,
+            score_ged=0,
+            score_diversification=0,
+            score_bulk_risk=0,
+            score_issuer_risk=0,
+            score_non_cover_global_stock=0,
+            score_non_cover_local_stock=0,
+            score_non_cover_mutual_fund=0,
+            score_not_monitored_product=0.0,
             asset_allocation={},
         )
-        return HealthMetrics(
-            sharpe_ratio=0.0,
-            mismatch_penalty=0.0,
-            bulk_penalty=0.0,
-            not_monitored_penalty=0.0,
-            score=0.0,
-            metrics=detail,
-        )
+        return HealthMetrics(score=0.0, metrics=detail)
     # Compute expected portfolio return and volatility as weighted averages
     exp_return = 0.0
     exp_vol = 0.0
@@ -140,6 +137,7 @@ def compute_portfolio_health(
     if sharpe_ratio < min_sharpe_ratio:
         ratio = min(1.0, (min_sharpe_ratio - sharpe_ratio) / (min_sharpe_ratio or 1e-6))
         score -= 2.5 * ratio
+        score_vol = -1
 
     # Asset allocation mismatch penalty
     weights = normalize_weights(portfolio.asset_class_weights())
@@ -158,6 +156,8 @@ def compute_portfolio_health(
         if deviation > corridor_width:
             mismatch_penalty += (deviation - corridor_width) / (1.0 - corridor_width)
     score -= min(2.5, mismatch_penalty * 2.5)
+    # Map to notebook-style components
+    score_diversification = int(-1 if mismatch_penalty > 0 else 0)
 
     # Bulk risk penalty
     bulk_penalty = 0.0
@@ -168,10 +168,12 @@ def compute_portfolio_health(
             bulk_positions.append(pos)
             bulk_penalty += (weight - bulk_threshold) / (1.0 - bulk_threshold)
     score -= min(2.5, bulk_penalty * 2.5)
+    score_bulk_risk_comp = int(-1 if bulk_penalty > 0 else 0)
 
     # Monitoring penalty
     not_monitored_penalty = sum(0.5 for p in portfolio.positions if not p.is_monitored)
     score -= min(2.5, not_monitored_penalty)
+    score_not_monitored_product = float(-min(2.5, not_monitored_penalty))
     # Build flat asset allocation from current weights using new labels
     asset_allocation = {
         "Cash and Cash Equivalent": weights.get("Cash and Cash Equivalent", 0.0),
@@ -181,24 +183,32 @@ def compute_portfolio_health(
         "Alternative": weights.get("Alternative", 0.0),
         "Allocation": weights.get("Allocation", 0.0),
     }
-    # Clamp and build metrics
+    # Map some components for compatibility
     final_score = max(0.0, min(10.0, score))
     detail = HealthDetailMetrics(
-        expected_return=expected_return,
-        volatility=volatility,
-        max_drawdown=max_drawdown,
-        var95=var95,
-        cumulative_return_20y=cumulative_return_20y,
-        annualized_return=annualized_return,
-        backtest_returns=backtest_returns,
+        port_id=None,
+        expected_return=exp_return,
+        expected_return_model=expected_return_model,
+        score_ret=score_ret,
+        volatility=exp_vol,
+        volatility_model=volatility_model,
+        score_vol=score_vol,
+        score_portfolio_risk=(score_ret or 0) + (score_vol or 0),
+        acd=float(sum(deviation_by_asset_class.values())) if deviation_by_asset_class else 0.0,
+        score_acd=0,
+        ged=0.0,
+        score_ged=0,
+        score_diversification=score_diversification,
+        score_bulk_risk=score_bulk_risk_comp,
+        score_issuer_risk=0,
+        score_non_cover_global_stock=0,
+        score_non_cover_local_stock=0,
+        score_non_cover_mutual_fund=0,
+        score_not_monitored_product=score_not_monitored_product,
         asset_allocation=asset_allocation,
     )
 
     return HealthMetrics(
-        sharpe_ratio=sharpe_ratio,
-        mismatch_penalty=mismatch_penalty,
-        bulk_penalty=bulk_penalty,
-        not_monitored_penalty=not_monitored_penalty,
         score=final_score,
         metrics=detail,
     )

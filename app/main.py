@@ -21,6 +21,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
+from app.utils.health_service import get_health_metrics_for_customer
 from app.utils.portfolio_fetcher import get_portfolio_for_customer
 
 load_dotenv()
@@ -161,7 +162,7 @@ def rebalance(request: RebalanceRequest) -> RebalanceResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.post("/api/v1/health-score", response_model=HealthMetrics)
+@app.post("/api/v1/health-score-mock", response_model=HealthMetrics)
 def get_health_score(request: HealthMetricsRequest) -> HealthMetrics:
     """Calculate and return only the health score for a customer's current portfolio."""
     # Use provided portfolio or build from customer_id
@@ -177,6 +178,33 @@ def get_health_score(request: HealthMetricsRequest) -> HealthMetrics:
     )
     # Return full metrics as typed model
     return metrics
+
+
+@app.post("/api/v1/health-score", response_model=HealthMetrics)
+def get_health_score_real(request: HealthMetricsRequest) -> HealthMetrics:
+    """Real health metrics based on PortProp matrices and advisory models.
+
+    This uses the in-memory dataset loaded at startup (see `app.data_store`) to
+    slice the client's current portfolio by `customer_id` and compute health
+    metrics using the same pipeline as the sample notebook.
+    """
+    try:
+        cust_id = int(request.customer_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="customer_id must be numeric") from e
+
+    try:
+        return get_health_metrics_for_customer(
+            ports=app.state.ports,
+            ppm=app.state.ppm,
+            hs=app.state.hs,
+            customer_id=cust_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("/api/v1/health-score failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":
