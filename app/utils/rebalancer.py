@@ -1,3 +1,4 @@
+import copy
 import warnings
 
 import numpy as np
@@ -77,7 +78,8 @@ class Rebalancer:
         # keep a clean recommendations frame template for easy resets
         self._reco_cols = [
             "transaction_no", "batch_no", "port_id", "product_id", "src_sharecodes", "desk",
-            "port_type", "currency", "value", "weight", "flag", "expected_weight", "action", "amount",
+            "port_type", "currency","product_display_name", "product_type_desc", "asset_class_name",
+            "value", "weight", "flag", "expected_weight", "action", "amount",
         ]
         self.recommendations = pd.DataFrame(columns=self._reco_cols)
 
@@ -135,14 +137,14 @@ class Rebalancer:
         """
         if df is None or df.empty:
             return pd.DataFrame(columns=[
-                "port_id","product_id","src_sharecodes","desk","port_type","currency",
+                "port_id","product_id","src_sharecodes","desk","port_type","currency","product_display_name", "product_type_desc", "asset_class_name",
                 "value","weight","flag","expected_weight","action","amount"
             ])
         if ports.product_mapping is None:
             raise RuntimeError("Product mapping must be loaded before mapping cash proxy.")
 
         cash_map = ports.product_mapping[ports.product_mapping["symbol"] == "CASH PROXY"][
-            ["product_id", "src_sharecodes", "desk", "port_type", "currency"]
+            ["product_id", "src_sharecodes", "desk", "port_type", "currency","product_display_name", "product_type_desc", "asset_class_name"]
         ].copy()
 
         if per_row:
@@ -158,7 +160,7 @@ class Rebalancer:
         out["expected_weight"] = np.nan
         out["action"] = "funding"
 
-        cols = ["port_id","product_id","src_sharecodes","desk","port_type","currency",
+        cols = ["port_id","product_id","src_sharecodes","desk","port_type","currency","product_display_name", "product_type_desc", "asset_class_name",
                 "value","weight","flag","expected_weight","action","amount"]
         out = out.loc[:, ~out.columns.duplicated()]
         return out[cols]
@@ -167,32 +169,50 @@ class Rebalancer:
     # Portfolio updater
     # ---------------------------
     def update_portfolio(self, ports: "Portfolios", trade_rows: pd.DataFrame) -> None:
+        # Create new_ports if not already created
+        if not hasattr(self, "new_ports") or self.new_ports is None:
+            # Make a deep copy of ports to preserve its structure and data
+            self.new_ports = copy.deepcopy(ports)
+
+        # Work with new_ports instead of original ports
+        new_ports = self.new_ports
+
+        # Prepare trade rows as position changes
         trade_as_positions = (
-            trade_rows[["port_id","amount"] + ports.prod_comp_keys]
+            trade_rows[["port_id", "amount"] + new_ports.prod_comp_keys]
             .rename(columns={"amount": "value"})
             .copy()
         )
 
-        base_positions = ports.df_out[["port_id","value"] + ports.prod_comp_keys].copy()
+        # Get current portfolio positions
+        base_positions = new_ports.df_out[["port_id", "value"] + new_ports.prod_comp_keys].copy()
+
+        # Combine base and trade positions
         df_products = pd.concat([base_positions, trade_as_positions], ignore_index=True, sort=False)
 
+        # Aggregate positions by product keys
         df_products = (
             df_products.groupby(
-                ["port_id"] + ports.prod_comp_keys,
+                ["port_id"] + new_ports.prod_comp_keys,
                 dropna=False,
                 as_index=False,
             )["value"]
             .sum()
         )
-        product_mapping = ports.product_mapping
+
+        # Merge product mapping
         df_out = df_products.merge(
-            product_mapping,
-            on=ports.prod_comp_keys,
+            new_ports.product_mapping,
+            on=new_ports.prod_comp_keys,
             how="left",
         )
 
+        # Filter out zero positions
         df_out = df_out[df_out["value"] != 0]
-        ports.set_portfolio(df_out, ports.df_style, ports.port_ids, ports.port_id_mapping)
+
+        # Update new_ports (not the original ports)
+        new_ports.set_portfolio(df_out, new_ports.df_style, new_ports.port_ids, new_ports.port_id_mapping)
+
 
     # ----- Mandate helpers -----
     def select_best_mandate_for_currency(
@@ -315,7 +335,7 @@ class Rebalancer:
         rec = pd.concat(parts, ignore_index=True)
 
         key_cols = [
-            "port_id","product_id","src_sharecodes","desk","port_type","currency","value","weight",
+            "port_id","product_id","src_sharecodes","desk","port_type","currency","product_display_name", "product_type_desc", "asset_class_name","value","weight",
         ]
         rec = (
             rec.groupby(key_cols, dropna=False, as_index=False)
@@ -336,7 +356,7 @@ class Rebalancer:
         trades = []
         for _, row in chosen.iterrows():
             row_df = pd.DataFrame([row[
-                ["port_id","product_id","src_sharecodes","desk","port_type","currency",
+                ["port_id","product_id","src_sharecodes","desk","port_type","currency","product_display_name", "product_type_desc", "asset_class_name",
                  "value","weight","flag","expected_weight","action","amount"]
             ]])
 
@@ -588,7 +608,7 @@ class Rebalancer:
 
                 chosen = chosen[
                     [
-                        "port_id","product_id","src_sharecodes","desk","port_type","currency",
+                        "port_id","product_id","src_sharecodes","desk","port_type","currency","product_display_name", "product_type_desc", "asset_class_name",
                         "value","weight","flag","expected_weight","action","amount",
                     ]
                 ]
@@ -700,7 +720,7 @@ class Rebalancer:
             funding_buy["action"] = "funding"
             funding_buy = funding_buy[
                 [
-                    "port_id","product_id","src_sharecodes","desk","port_type","currency",
+                    "port_id","product_id","src_sharecodes","desk","port_type","currency","product_display_name", "product_type_desc", "asset_class_name",
                     "value","weight","flag","expected_weight","action","amount"
                 ]
             ]
@@ -749,23 +769,25 @@ class Rebalancer:
             if reset_state:
                 self.reset_state()
 
-            sells = self.build_sell_recommendations(ports, ppm, hs)
+            self.new_ports = copy.deepcopy(ports)
+
+            sells = self.build_sell_recommendations(self.new_ports, ppm, hs)
             if not sells.empty:
                 self.recommendations = pd.concat([self.recommendations, sells], ignore_index=True)
 
-            cash_shift = self.move_cash_overweight_to_proxy(ports, ppm)
+            cash_shift = self.move_cash_overweight_to_proxy(self.new_ports, ppm)
             if not cash_shift.empty:
                 self.recommendations = pd.concat([self.recommendations, cash_shift], ignore_index=True)
 
-            buys = self.build_buy_recommendations(ports, ppm)
+            buys = self.build_buy_recommendations(self.new_ports, ppm)
             if not buys.empty:
                 self.recommendations = pd.concat([self.recommendations, buys], ignore_index=True)
 
-            return self.recommendations
+            return self.new_ports, self.recommendations
 
         except Exception as e:
             print(e)
             # if not self.recommendations.empty:
             #     return self.recommendations
 
-            return pd.DataFrame(columns=self.recommendations.columns)
+            return self.new_ports, pd.DataFrame(columns=self.recommendations.columns)

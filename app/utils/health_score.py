@@ -239,7 +239,7 @@ class HealthScore:
         if cal_comp:
             join_key = ["port_id"] + ports.prod_comp_keys
             df_joined_comp = (
-                ports.df_out[join_key + ["product_type_desc", "value"]]
+                ports.df_out[join_key + ["product_display_name", "product_type_desc", "asset_class_name", "value"]]
                 .merge(df_comp_risk_diversification, on=join_key, how="left")
                 .merge(df_comp_bulk_risk, on=join_key, how="left")
                 .merge(df_comp_issuer_risk, on=join_key, how="left")
