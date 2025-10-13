@@ -22,6 +22,7 @@ class Position(BaseModel):
     desk: Optional[str] = Field(default=None, alias="desk")
     port_type: Optional[str] = Field(default=None, alias="portType")
     src_symbol: str = Field(alias="symbol")
+    src_sharecodes: Optional[str] = Field(default=None, alias="srcSharecodes")
     asset_class: str = Field(
         alias="assetClass",
         description="(Cash, Fixed Income, Global Equity, Local Equity, Alternative, Asset Allocation)",
@@ -192,9 +193,19 @@ class ConstraintsV2(BaseModel):
     product_restriction: Optional[List[str]] = Field(
         default=None, description="List of product symbols to exclude"
     )
+    product_whitelist: Optional[List[str]] = Field(
+        default=None, description="List of product symbols explicitly allowed"
+    )
+    product_blacklist: Optional[List[str]] = Field(
+        default=None, description="List of product symbols to exclude (takes precedence over restriction)"
+    )
     discretionary_acceptance: float = Field(
         default=0.4,
         description="Cap for total Mandate weight in portfolio (0-1). None -> no cap (treated as 1.0).",
+    )
+    client_classification: Optional[str] = Field(
+        default=None,
+        description="Client classification (e.g., UI, Non-UI)",
     )
 
 
@@ -228,6 +239,7 @@ class RebalanceResponse(BaseModel):
     actions: List[ActionLog]
     portfolio: Portfolio
     health_score: float
+    health_metrics: HealthMetrics
 
 
 class HealthDetailMetrics(BaseModel):

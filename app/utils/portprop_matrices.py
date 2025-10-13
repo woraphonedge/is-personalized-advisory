@@ -51,9 +51,11 @@ class PortpropMatrices():
 
     def cal_df_out_join_bm(self, ports):
         df_out_join = ports.df_out.copy()
-
+        # if asset_class_name is na, print df_out_join
+        if df_out_join['asset_class_name'].isna().any():
+            print(f"[TEMP-DEBUG] show na record in df_out_join: {df_out_join[df_out_join['asset_class_name'].isna()][['symbol','asset_class_name','pp_asset_sub_class','value']]}")
         df_out_join['asset_allo_join_key'] = np.where(
-            df_out_join['asset_class_name'] == 'Allocation',
+            df_out_join['asset_class_name'].eq('Allocation').fillna(False),
             df_out_join['symbol'],
             np.nan
         )
@@ -89,8 +91,9 @@ class PortpropMatrices():
         )
 
         # Vectorized assignments for 'ASSET_CLASS', 'BM_NAME', 'WEIGHT'
-        is_alloc = df_out_join['asset_class_name'] == 'Allocation'
-        fallback = df_out_join['asset_allo_fallback_join_key'] == 'FALLBACK'
+        # Handle NA values safely in boolean operations
+        is_alloc = df_out_join['asset_class_name'].eq('Allocation').fillna(False)
+        fallback = df_out_join['asset_allo_fallback_join_key'].eq('FALLBACK').fillna(False)
 
         df_out_join['asset_class'] = np.where(
             ~is_alloc,

@@ -1,4 +1,5 @@
 import copy
+import logging
 import warnings
 
 import numpy as np
@@ -114,8 +115,11 @@ class Rebalancer:
 
     def get_product_recommendation_rank(self, ports) -> pd.DataFrame:
         """Merge the (preloaded) recommendation rank with current product mapping."""
-        if self.prod_reco_rank_raw is None:
-            self.load_product_recommendation_rank_raw()
+        # Guard: if reference not loaded, warn and use empty frame with expected columns
+        if not hasattr(self, "prod_reco_rank_raw") or self.prod_reco_rank_raw is None:
+            logger = logging.getLogger(__name__)
+            logger.warning("prod_reco_rank_raw is None; continuing with empty recommendations")
+            self.prod_reco_rank_raw = pd.DataFrame(columns=["src_sharecodes", "desk", "currency"])  # minimal expected keys
         prod_reco_rank = self.prod_reco_rank_raw.merge(
             ports.product_mapping,
             on=["src_sharecodes", "desk", "currency"],
@@ -164,10 +168,27 @@ class Rebalancer:
     # ---------------------------
     # Portfolio updater
     # ---------------------------
+    def _ensure_symbol_column(self, ports: "Portfolios") -> None:
+        """Ensure ports.df_out has a 'symbol' column for downstream consumers.
+        Uses 'src_sharecodes' or 'src_symbol' fallback if needed.
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            if hasattr(ports, "df_out") and ports.df_out is not None:
+                cols = list(ports.df_out.columns)
+                if "symbol" not in cols:
+                    if "src_sharecodes" in cols:
+                        ports.df_out["symbol"] = ports.df_out["src_sharecodes"].astype(str)
+                    elif "src_symbol" in cols:
+                        ports.df_out["symbol"] = ports.df_out["src_symbol"].astype(str)
+        except Exception as e:
+            logger.warning("Failed to ensure symbol column exists: %s", e, exc_info=True)
     def update_portfolio(self, ports: "Portfolios", actions: pd.DataFrame) -> None:
         # Create new_ports if not already created
         if not hasattr(self, "new_ports") or self.new_ports is None:
             self.new_ports = copy.deepcopy(ports)
+            # Ensure symbol col exists
+            self._ensure_symbol_column(self.new_ports)
 
         # Prepare actions as position changes
         action_positions = (
@@ -204,6 +225,8 @@ class Rebalancer:
 
         # Update new ports
         self.new_ports.set_portfolio(df_out, self.new_ports.df_style, self.new_ports.port_ids, self.new_ports.port_id_mapping)
+        # Ensure symbol after recompute
+        self._ensure_symbol_column(self.new_ports)
 
 
     # ----- Discretionary helpers -----
@@ -327,6 +350,13 @@ class Rebalancer:
         return sub
 
     def check_es_sell_list(self, ports, ppm, hs) -> pd.DataFrame:
+        # [TEMP-DEBUG] Guard: if es_sell_list ref is missing, skip
+        if not hasattr(self, "es_sell_list") or self.es_sell_list is None:
+            logger = logging.getLogger(__name__)
+            logger.warning("es_sell_list reference is None; skipping sell-list filter")
+            return pd.DataFrame(columns=[
+                "port_id","src_sharecodes","flag","expected_weight","value","weight"
+            ])
         _, comp = ports.get_portfolio_health_score(ppm, hs, cal_comp=True)
         comp = comp.merge(self.es_sell_list, left_on="src_sharecodes", right_on="symbol", how="left")
         sub = comp[~comp["symbol"].isna()].copy()
@@ -335,6 +365,7 @@ class Rebalancer:
         return sub
 
     def build_sell_recommendations(self, ports, ppm, hs) -> pd.DataFrame:
+
         bad_products = [
             self.check_not_monitored(ports, ppm, hs),
             self.check_issuer_risk(ports, ppm, hs),
@@ -350,8 +381,10 @@ class Rebalancer:
         # aggregate by key_cols, combine flags, take min expected_weight
         to_sells = (
             to_sell.groupby(["port_id","value","weight"] + ports.prod_comp_keys, dropna=False, as_index=False)
-              .agg(flag=("flag", lambda x: ", ".join(sorted(set(x)))),
-                   expected_weight=("expected_weight", "min"))
+            .agg(
+                flag=("flag", lambda x: ", ".join(sorted(set(x)))),
+                expected_weight=("expected_weight", "min"),
+            )
         )
         to_sells["action"] = "sell"
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -369,11 +402,46 @@ class Rebalancer:
             how="left",
         )
 
+        # Debugging
+        # _na_mask = to_sells[["product_type_desc", "src_sharecodes", "symbol", "asset_class_name"]].isna()
+        # if _na_mask.any(axis=1).any():
+        #     cols_dbg = ["port_id"] + list(ports.prod_comp_keys) + [
+        #         "flag", "expected_weight", "weight", "value",
+        #         "src_sharecodes", "symbol", "product_type_desc", "asset_class_name"
+        #     ]
+        #     logger = logging.getLogger(__name__)
+        #     logger.warning(
+        #         "Rows with NA after mapping (sample):\n%s",
+        #         to_sells.loc[_na_mask.any(axis=1), cols_dbg].head(10)
+        #     )
+        #     try:
+        #         # Show what exists in product_mapping for these src_sharecodes to compare join keys
+        #         na_syms = to_sells.loc[_na_mask.any(axis=1), "src_sharecodes"].dropna().astype(str).unique().tolist()
+        #         pm_cols = list(ports.prod_comp_keys) + ["symbol", "product_type_desc", "asset_class_name"]
+        #         pm_slice = ports.product_mapping[ports.product_mapping["src_sharecodes"].astype(str).isin(na_syms)][pm_cols].drop_duplicates()
+        #         logger.warning(
+        #             "product_mapping candidates for NA symbols (sample):\n%s\njoin keys used: %s",
+        #             pm_slice.head(20),
+        #             ports.prod_comp_keys,
+        #         )
+        #     except Exception:
+        #         pass
+
+
         # build row-by-row (to allow per-row min checks)
         recommendations = []
         for _, to_sell in to_sells.iterrows():
             to_sell = pd.DataFrame([to_sell])
-            if (to_sell["product_type_desc"].iloc[0] in ["Private Market", "Hedge Fund", "Structured Note"]) or (not to_sell["flag_tax_saving"].isna().iloc[0]) or (to_sell["src_sharecodes"].iloc[0] in self.product_whitelist):
+            ft = to_sell["flag_tax_saving"].iloc[0] if "flag_tax_saving" in to_sell.columns else None
+            is_tax_saving = bool(pd.notna(ft) and ft not in (False, "", 0))
+            # removed noisy row-level debug prints
+            # Handle NA values safely in boolean conditions
+            ptype = to_sell["product_type_desc"].iloc[0]
+            ptype_restricted = (not pd.isna(ptype)) and (ptype in ["Private Market", "Hedge Fund", "Structured Note"])
+            src_code = to_sell["src_sharecodes"].iloc[0]
+            src_whitelisted = (not pd.isna(src_code)) and (src_code in self.product_whitelist if self.product_whitelist else False)
+
+            if ptype_restricted or is_tax_saving or src_whitelisted:
                 continue
 
             # row-level minimum checks (BOTH must pass)
@@ -906,6 +974,8 @@ class Rebalancer:
     # ---------------------------
     def rebalance(self, ports, ppm, hs, reset_state: bool = True, refresh_refs: bool = False) -> pd.DataFrame:
         try:
+            logger = logging.getLogger(__name__)
+            logger.debug("[rebalance] start | new_money=%s", self.new_money)
             # optionally refresh DB-backed reference tables
             if refresh_refs:
                 self.refresh_reference_data()
@@ -919,23 +989,33 @@ class Rebalancer:
             sells = self.build_sell_recommendations(self.new_ports, ppm, hs)
             if not sells.empty:
                 self.recommendations = pd.concat([self.recommendations, sells], ignore_index=True)
+            logger.debug("[rebalance] sells rows=%s", 0 if sells is None else len(sells))
 
             cash_shift = self.move_cash_overweight_to_proxy(self.new_ports, ppm)
             if not cash_shift.empty:
                 self.recommendations = pd.concat([self.recommendations, cash_shift], ignore_index=True)
+            logger.debug("[rebalance] cash_shift rows=%s", 0 if cash_shift is None else len(cash_shift))
 
             convert_ccy = self.convert_cash_proxy_currency(self.new_ports)
             if not convert_ccy.empty:
                 self.recommendations = pd.concat([self.recommendations, convert_ccy], ignore_index=True)
+            logger.debug("[rebalance] convert_ccy rows=%s", 0 if convert_ccy is None else len(convert_ccy))
 
             buys = self.build_buy_recommendations(self.new_ports, ppm)
             if not buys.empty:
                 self.recommendations = pd.concat([self.recommendations, buys], ignore_index=True)
+            logger.debug("[rebalance] buys rows=%s", 0 if buys is None else len(buys))
 
+            logger.debug("[rebalance] final recommendations rows=%s", len(self.recommendations))
+            try:
+                logger.debug("[rebalance] final df_out rows=%s", len(self.new_ports.df_out))
+            except Exception:
+                logger.debug("[rebalance] final df_out unavailable")
             return self.new_ports, self.recommendations
 
         except Exception as e:
-            print(e)
+            logger = logging.getLogger(__name__)
+            logger.exception("[rebalance][exception] %s", e)
             # if not self.recommendations.empty:
             #     return self.recommendations
 

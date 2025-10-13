@@ -11,6 +11,7 @@ This module wires together the overhauled utils using the repository pattern:
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -22,6 +23,7 @@ from app.utils.portfolios_repo import PortfoliosRepository
 from app.utils.portprop_matrices import PortpropMatrices
 from app.utils.portprop_matrices_repo import PortpropMatricesRepository
 from app.utils.rebalancer import Rebalancer
+from app.utils.rebalancer_repo import RebalancerRepository
 
 # Module-level caches populated during app lifespan
 _candidate_data: Optional[List[Position]] = None
@@ -31,7 +33,7 @@ port_ids_loaded = None
 port_id_mapping_loaded = None
 
 discretionary_acceptance = 0.4
-as_of_date = "2025-08-31"
+as_of_date = os.getenv("AS_OF_DATE", "2025-09-30")
 
 
 loader = DataLoader()
@@ -61,6 +63,19 @@ ports.set_ref_tables(ports_ref_table)
 ppm = PortpropMatrices(ppm_ref_dict)
 hs = HealthScore()
 rb = Rebalancer(discretionary_acceptance=discretionary_acceptance)
+rb_repo = RebalancerRepository(loader)
+
+# Preload rebalancer reference tables
+try:
+    _rb_refs = {
+        "es_sell_list": rb_repo.load_es_sell_list(),
+        "product_recommendation_rank_raw": rb_repo.load_product_recommendation_rank_raw(),
+        "mandate_allocation": rb_repo.load_mandate_candidates(),
+    }
+    rb.set_ref_tables(_rb_refs)
+except Exception as e:
+    # Keep startup resilient; phases will skip with [TEMP-DEBUG] logs if missing
+    print(f"[startup] Rebalancer refs not fully loaded: {e}")
 
 
 def load_data() -> None:
