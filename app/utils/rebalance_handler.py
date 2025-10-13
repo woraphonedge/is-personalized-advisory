@@ -123,7 +123,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
             for col in enriched_cols
         )
 
-        logger.debug(f"[TEMP-DEBUG] Portfolio enrichment check:")
+        logger.debug("[TEMP-DEBUG] Portfolio enrichment check:")
         logger.debug(
             f"[TEMP-DEBUG] - Required cols present: {[c for c in required_cols if c in df_out.columns]}"
         )
@@ -180,7 +180,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
 
                 # First try exact match with src_sharecodes + product_id + currency
                 use_keys = ["src_sharecodes", "product_id", "currency"]
-                logger.debug(f"[TEMP-DEBUG] Before product mapping merge:")
+                logger.debug("[TEMP-DEBUG] Before product mapping merge:")
                 logger.debug(
                     f"[TEMP-DEBUG] - df_out sample keys: {df_out[use_keys].head(3) if all(k in df_out.columns for k in use_keys) else 'MISSING KEYS'}"
                 )
@@ -269,7 +269,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
                                 f"[TEMP-DEBUG] Column {c}: NA count changed from {before_na} to {after_na}"
                             )
 
-                logger.debug(f"[TEMP-DEBUG] After applying mapped values:")
+                logger.debug("[TEMP-DEBUG] After applying mapped values:")
                 logger.debug(
                     f"[TEMP-DEBUG] - symbol NA count: {merged['symbol'].isna().sum()}"
                 )
@@ -292,7 +292,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
                     )
                 ]
 
-                logger.debug(f"[TEMP-DEBUG] Final df_out after enrichment:")
+                logger.debug("[TEMP-DEBUG] Final df_out after enrichment:")
                 logger.debug(f"[TEMP-DEBUG] - Total rows: {len(df_out)}")
                 logger.debug(
                     f"[TEMP-DEBUG] - symbol NA count: {df_out['symbol'].isna().sum()}"
@@ -316,7 +316,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
                 )
             else:
                 logger.debug(
-                    f"[TEMP-DEBUG] SUCCESS: All rows have required columns filled after enrichment"
+                    "[TEMP-DEBUG] SUCCESS: All rows have required columns filled after enrichment"
                 )
         logger.debug(
             "df_out enriched shape=%s cols=%s", df_out.shape, list(df_out.columns)
@@ -547,14 +547,79 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
             )
     proposed_portfolio_model = Portfolio(positions=positions)
 
-    # Compute health metrics on proposed portfolio
-    _metrics = compute_portfolio_health(
-        proposed_portfolio_model,
-        request.objective.target_alloc,
-    )
-    health = _metrics.score
-    # Wrap detailed metrics into HealthMetrics to satisfy RebalanceResponse schema
-    health_metrics = HealthMetrics(score=health, metrics=_metrics.metrics)
+    # Compute health metrics on proposed portfolio using real health score implementation
+    # Create a Portfolio object from the proposed portfolio DataFrame (same as notebook flow)
+    try:
+        # The new_ports object already has the proposed portfolio as a Portfolio instance
+        # We can directly call get_portfolio_health_score on it
+        df_health, _comp = new_ports.get_portfolio_health_score(
+            state.ppm, state.hs, cal_comp=True
+        )
+
+        if df_health is None or len(df_health) == 0:
+            logger.warning("No health metrics returned from proposed portfolio, using mock")
+            # Fallback to mock implementation
+            _metrics = compute_portfolio_health(
+                proposed_portfolio_model,
+                request.objective.target_alloc,
+            )
+            health = _metrics.score
+            health_metrics = HealthMetrics(score=health, metrics=_metrics.metrics)
+        else:
+            row = df_health.iloc[0]
+
+            # Current asset allocation (lookthrough)
+            try:
+                alloc_df = new_ports.get_portfolio_asset_allocation_lookthrough(state.ppm)
+                arow = alloc_df.iloc[0] if alloc_df is not None and len(alloc_df) > 0 else None
+                asset_allocation = {
+                    "Cash and Cash Equivalent": float(arow["aa_cash"]) if arow is not None else 0.0,
+                    "Fixed Income": float(arow["aa_fi"]) if arow is not None else 0.0,
+                    "Local Equity": float(arow["aa_le"]) if arow is not None else 0.0,
+                    "Global Equity": float(arow["aa_ge"]) if arow is not None else 0.0,
+                    "Alternative": float(arow["aa_alt"]) if arow is not None else 0.0,
+                    "Allocation": 0.0,
+                }
+            except Exception:
+                asset_allocation = {}
+
+            from app.models import HealthDetailMetrics
+
+            detail = HealthDetailMetrics(
+                port_id=int(row.get("port_id", 0) or 0),
+                expected_return=float(row.get("expected_return", 0.0) or 0.0),
+                expected_return_model=float(row.get("expected_return_model", 0.0) or 0.0),
+                score_ret=int(row.get("score_ret", 0) or 0),
+                volatility=float(row.get("volatility", 0.0) or 0.0),
+                volatility_model=float(row.get("volatility_model", 0.0) or 0.0),
+                score_vol=int(row.get("score_vol", 0) or 0),
+                score_portfolio_risk=int(row.get("score_portfolio_risk", 0) or 0),
+                acd=float(row.get("acd", 0.0) or 0.0),
+                score_acd=int(row.get("score_acd", 0) or 0),
+                ged=float(row.get("ged", 0.0) or 0.0),
+                score_ged=int(row.get("score_ged", 0) or 0),
+                score_diversification=int(row.get("score_diversification", 0) or 0),
+                score_bulk_risk=int(row.get("score_bulk_risk", 0) or 0),
+                score_issuer_risk=int(row.get("score_issuer_risk", 0) or 0),
+                score_non_cover_global_stock=int(row.get("score_non_cover_global_stock", 0) or 0),
+                score_non_cover_local_stock=int(row.get("score_non_cover_local_stock", 0) or 0),
+                score_non_cover_mutual_fund=int(row.get("score_non_cover_mutual_fund", 0) or 0),
+                score_not_monitored_product=float(row.get("score_not_monitored_product", 0.0) or 0.0),
+                asset_allocation=asset_allocation,
+            )
+
+            health = float(row.get("health_score", 0.0) or 0.0)
+            health_metrics = HealthMetrics(score=health, metrics=detail)
+
+    except Exception as e:
+        logger.exception("Failed to compute real health score, falling back to mock: %s", e)
+        # Fallback to mock implementation
+        _metrics = compute_portfolio_health(
+            proposed_portfolio_model,
+            request.objective.target_alloc,
+        )
+        health = _metrics.score
+        health_metrics = HealthMetrics(score=health, metrics=_metrics.metrics)
 
     return RebalanceResponse(
         actions=action_logs,

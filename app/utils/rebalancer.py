@@ -168,27 +168,28 @@ class Rebalancer:
     # ---------------------------
     # Portfolio updater
     # ---------------------------
-    def _ensure_symbol_column(self, ports: "Portfolios") -> None:
-        """Ensure ports.df_out has a 'symbol' column for downstream consumers.
-        Uses 'src_sharecodes' or 'src_symbol' fallback if needed.
-        """
-        logger = logging.getLogger(__name__)
-        try:
-            if hasattr(ports, "df_out") and ports.df_out is not None:
-                cols = list(ports.df_out.columns)
-                if "symbol" not in cols:
-                    if "src_sharecodes" in cols:
-                        ports.df_out["symbol"] = ports.df_out["src_sharecodes"].astype(str)
-                    elif "src_symbol" in cols:
-                        ports.df_out["symbol"] = ports.df_out["src_symbol"].astype(str)
-        except Exception as e:
-            logger.warning("Failed to ensure symbol column exists: %s", e, exc_info=True)
+    # to be deleted later after ensure that it is not needed
+    # def _ensure_symbol_column(self, ports: "Portfolios") -> None:
+    #     """Ensure ports.df_out has a 'symbol' column for downstream consumers.
+    #     Uses 'src_sharecodes' or 'src_symbol' fallback if needed.
+    #     """
+    #     logger = logging.getLogger(__name__)
+    #     try:
+    #         if hasattr(ports, "df_out") and ports.df_out is not None:
+    #             cols = list(ports.df_out.columns)
+    #             if "symbol" not in cols:
+    #                 if "src_sharecodes" in cols:
+    #                     ports.df_out["symbol"] = ports.df_out["src_sharecodes"].astype(str)
+    #                 elif "src_symbol" in cols:
+    #                     ports.df_out["symbol"] = ports.df_out["src_symbol"].astype(str)
+    #     except Exception as e:
+    #         logger.warning("Failed to ensure symbol column exists: %s", e, exc_info=True)
     def update_portfolio(self, ports: "Portfolios", actions: pd.DataFrame) -> None:
         # Create new_ports if not already created
         if not hasattr(self, "new_ports") or self.new_ports is None:
             self.new_ports = copy.deepcopy(ports)
             # Ensure symbol col exists
-            self._ensure_symbol_column(self.new_ports)
+            # self._ensure_symbol_column(self.new_ports)
 
         # Prepare actions as position changes
         action_positions = (
