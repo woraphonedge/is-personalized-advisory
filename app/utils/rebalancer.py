@@ -227,7 +227,7 @@ class Rebalancer:
         # Update new ports
         self.new_ports.set_portfolio(df_out, self.new_ports.df_style, self.new_ports.port_ids, self.new_ports.port_id_mapping)
         # Ensure symbol after recompute
-        self._ensure_symbol_column(self.new_ports)
+        # self._ensure_symbol_column(self.new_ports)
 
 
     # ----- Discretionary helpers -----
@@ -978,14 +978,20 @@ class Rebalancer:
             logger = logging.getLogger(__name__)
             logger.debug("[rebalance] start | new_money=%s", self.new_money)
             # optionally refresh DB-backed reference tables
-            if refresh_refs:
-                self.refresh_reference_data()
+            # if refresh_refs:
+            #     self.refresh_reference_data()
 
             # clear ephemeral state so we don't carry over from previous runs
             if reset_state:
                 self.reset_state()
 
             self.new_ports = copy.deepcopy(ports)
+
+            new_money = self.add_new_money(self.new_ports)
+            if not new_money.empty:
+                self.recommendations = pd.concat([self.recommendations, new_money], ignore_index=True)
+                self.update_portfolio(self.new_ports, new_money)
+            logger.debug("[rebalance] new_money rows=%s", 0 if new_money is None else len(new_money))
 
             sells = self.build_sell_recommendations(self.new_ports, ppm, hs)
             if not sells.empty:
@@ -1036,10 +1042,10 @@ class Rebalancer:
         # self.new_ports = copy.deepcopy(ports)
 
         # # --- Add new money (as cash proxy THB) if any ---
-        # new_money_reco = self.add_new_money(self.new_ports)
-        # if not new_money_reco.empty:
-        #     self.recommendations = pd.concat([self.recommendations, new_money_reco], ignore_index=True)
-        #     self.update_portfolio(self.new_ports, new_money_reco)
+        # new_money = self.add_new_money(self.new_ports)
+        # if not new_money.empty:
+        #     self.recommendations = pd.concat([self.recommendations, new_money], ignore_index=True)
+        #     self.update_portfolio(self.new_ports, new_money)
 
         # sells = self.build_sell_recommendations(self.new_ports, ppm, hs)
         # if not sells.empty:

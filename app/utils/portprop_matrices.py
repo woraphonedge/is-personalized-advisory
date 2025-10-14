@@ -91,9 +91,8 @@ class PortpropMatrices():
         )
 
         # Vectorized assignments for 'ASSET_CLASS', 'BM_NAME', 'WEIGHT'
-        # Handle NA values safely in boolean operations
-        is_alloc = df_out_join['asset_class_name'].eq('Allocation').fillna(False)
-        fallback = df_out_join['asset_allo_fallback_join_key'].eq('FALLBACK').fillna(False)
+        is_alloc = df_out_join['asset_class_name'] == 'Allocation'
+        fallback = df_out_join['asset_allo_fallback_join_key'] == 'FALLBACK'
 
         df_out_join['asset_class'] = np.where(
             ~is_alloc,
