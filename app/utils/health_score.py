@@ -45,7 +45,7 @@ class HealthScore:
                 (df_port_matrix["aa_alt"]  - df_port_matrix["aa_alt_model"]) ** 2
             ) ** 0.5
         )
-        df_port_matrix["score_acd"] = np.where(df_port_matrix["acd"] / 5 > 10, -1, 0)
+        df_port_matrix["score_acd"] = np.where(df_port_matrix["acd"] / 5 > 0.1, -1, 0)
 
         df_port_matrix["ged"] = (
             (
@@ -56,7 +56,7 @@ class HealthScore:
                 (df_port_matrix["ge_other"]  - df_port_matrix["ge_other_model"]) ** 2
             ) ** 0.5
         )
-        df_port_matrix["score_ged"] = np.where(df_port_matrix["ged"] / 5 > 4, -1, 0)
+        df_port_matrix["score_ged"] = np.where(df_port_matrix["ged"] / 5 > 0.04, -1, 0)
 
         df_port_matrix["score_diversification"] = df_port_matrix["score_acd"] + df_port_matrix["score_ged"]
 
