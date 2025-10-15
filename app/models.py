@@ -279,6 +279,10 @@ class HealthDetailMetrics(BaseModel):
     - score_not_monitored_product
     """
 
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+
     port_id: int | None = None
 
     expected_return: float
@@ -308,6 +312,12 @@ class HealthDetailMetrics(BaseModel):
 
     # Optional: include look-through allocation for convenience
     asset_allocation: Dict[str, float] | None = None
+    # Model asset allocation based on client investment style (advisory model target)
+    model_asset_allocation: Dict[str, float] | None = Field(
+        default=None,
+        alias="modelAssetAllocation",
+        description="Target asset allocation from advisory model matching client investment style"
+    )
 
 
 class HealthMetrics(BaseModel):

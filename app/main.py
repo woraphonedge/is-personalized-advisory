@@ -47,6 +47,7 @@ from .models import (
     RebalanceRequestMock,
     RebalanceResponse,
 )
+from .utils.health_service import override_client_style
 from .utils.rebalancer_mock import compute_portfolio_health, propose_rebalance
 
 app = FastAPI(title="Investment Rebalancing API", lifespan=lifespan)
@@ -193,32 +194,33 @@ def get_health_score_real(request: HealthMetricsRequest) -> HealthMetrics:
     slice the client's current portfolio by `customer_id` and compute health
     metrics using the same pipeline as the sample notebook.
 
-    NOTE: The `client_style` parameter is accepted but not currently used.
-    The health score calculation relies on the stored investment style from
-    `df_style` (port_investment_style column) which is loaded at startup from
-    the database.
+    The `client_style` parameter allows dynamic override of the stored investment
+    style. When provided, it temporarily modifies `app.state.ports.df_style` for
+    this API call only, then restores the original. This enables real-time health
+    score recalculation when users change their investment style in the UI without
+    requiring a full data reload.
 
-    TODO: Future implementation should:
-    1. Pass `client_style` to `get_health_metrics_for_customer()`
-    2. Update `get_health_metrics_for_customer()` to accept and use client_style
-    3. Override the stored df_style.port_investment_style with the provided value
-    4. This will allow dynamic health score recalculation when user changes style
-       in the UI without requiring a full data reload
+    Implementation:
+    1. Saves original df_style before modification
+    2. Overrides port_investment_style for the customer's port_id
+    3. Remaps to portpop_styles using the style_map
+    4. Calculates health score with the overridden style
+    5. Restores original df_style in finally block (ensures thread-safety)
     """
     try:
         cust_id = int(request.customer_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail="customer_id must be numeric") from e
 
-    # TODO: Pass request.client_style to get_health_metrics_for_customer when implemented
+    # Override client_style if provided (temporary modification for this API call only)
     try:
-        return get_health_metrics_for_customer(
-            ports=app.state.ports,
-            ppm=app.state.ppm,
-            hs=app.state.hs,
-            customer_id=cust_id,
-            # client_style=request.client_style,  # Uncomment when implemented
-        )
+        with override_client_style(app.state.ports, cust_id, request.client_style):
+            return get_health_metrics_for_customer(
+                ports=app.state.ports,
+                ppm=app.state.ppm,
+                hs=app.state.hs,
+                customer_id=cust_id,
+            )
     except HTTPException:
         raise
     except Exception as e:

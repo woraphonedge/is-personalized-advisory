@@ -1,9 +1,80 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from typing import Optional
+
 from fastapi import HTTPException
 
 from app.models import HealthDetailMetrics, HealthMetrics
 from app.utils.portfolios_service import PortfolioService
+
+# Style mapping from user-friendly names to PortProp model names
+STYLE_MAP = {
+    'Bulletproof': 'Conservative',
+    'Conservative': 'Conservative',
+    'Moderate Low Risk': 'Medium to Moderate Low Risk',
+    'Moderate High Risk': 'Medium to Moderate High Risk',
+    'High Risk': 'High Risk',
+    'Aggressive Growth': 'Aggressive',
+    'Unwavering': 'Aggressive'
+}
+
+
+@contextmanager
+def override_client_style(ports, customer_id: int, client_style: Optional[str] = None):
+    """Context manager to temporarily override client investment style in df_style.
+
+    This allows dynamic health score and rebalance calculations with different
+    investment styles without modifying the stored data permanently.
+
+    Args:
+        ports: Portfolios instance with df_style DataFrame
+        customer_id: Customer ID to override style for
+        client_style: New investment style to apply (e.g., 'High Risk', 'Conservative')
+
+    Yields:
+        None
+
+    Example:
+        with override_client_style(app.state.ports, 14055, "High Risk"):
+            # df_style is temporarily modified
+            health_metrics = get_health_metrics_for_customer(...)
+        # df_style is automatically restored here
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    original_df_style = None
+
+    try:
+        if client_style:
+            # Save original df_style for restoration
+            original_df_style = ports.df_style.copy()
+
+            # Override port_investment_style for the customer's portfolio
+            mask = ports.df_style["port_id"].isin(
+                ports.port_id_mapping[
+                    ports.port_id_mapping["customer_id"] == customer_id
+                ]["port_id"]
+            )
+            ports.df_style.loc[mask, "port_investment_style"] = client_style
+
+            # Remap to portpop_styles using the style_map
+            ports.df_style.loc[mask, "portpop_styles"] = (
+                ports.df_style.loc[mask, "port_investment_style"].map(STYLE_MAP)
+            )
+            logger.debug(
+                "Temporarily overrode client_style to %s for customer_id=%s",
+                client_style, customer_id
+            )
+
+        yield
+
+    finally:
+        # Restore original df_style to ensure modification is only for this context
+        if original_df_style is not None:
+            ports.df_style = original_df_style
+            logger.debug("Restored original df_style after operation")
 
 
 def get_health_metrics_for_customer(ports, ppm, hs, customer_id: int) -> HealthMetrics:
@@ -40,6 +111,47 @@ def get_health_metrics_for_customer(ports, ppm, hs, customer_id: int) -> HealthM
         except Exception:
             asset_allocation = {}
 
+        # Model asset allocation (advisory model based on client investment style)
+        try:
+            model_alloc_df = client_port.get_model_asset_allocation_lookthrough(ppm)
+
+            if model_alloc_df is None or len(model_alloc_df) == 0:
+                raise ValueError(
+                    f"No model allocation found for customer_id={customer_id}. "
+                    "This may indicate missing style mapping or model configuration."
+                )
+
+            mrow = model_alloc_df.iloc[0]
+
+            # Validate required columns exist
+            required_cols = ["aa_cash_model", "aa_fi_model", "aa_le_model", "aa_ge_model", "aa_alt_model"]
+            missing_cols = [col for col in required_cols if col not in mrow.index]
+            if missing_cols:
+                raise ValueError(
+                    f"Model allocation missing required columns: {missing_cols}. "
+                    f"Available columns: {list(mrow.index)}"
+                )
+
+            model_asset_allocation = {
+                "Cash and Cash Equivalent": float(mrow["aa_cash_model"]),
+                "Fixed Income": float(mrow["aa_fi_model"]),
+                "Local Equity": float(mrow["aa_le_model"]),
+                "Global Equity": float(mrow["aa_ge_model"]),
+                "Alternative": float(mrow["aa_alt_model"]),
+                "Allocation": 0.0,
+            }
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                "Failed to retrieve model asset allocation for customer_id=%s: %s",
+                customer_id, str(e)
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to retrieve advisory model allocation: {str(e)}"
+            ) from e
+
         detail = HealthDetailMetrics(
             port_id=int(row.get("port_id", 0) or 0),
             expected_return=float(row.get("expected_return", 0.0) or 0.0),
@@ -61,6 +173,7 @@ def get_health_metrics_for_customer(ports, ppm, hs, customer_id: int) -> HealthM
             score_non_cover_mutual_fund=int(row.get("score_non_cover_mutual_fund", 0) or 0),
             score_not_monitored_product=float(row.get("score_not_monitored_product", 0.0) or 0.0),
             asset_allocation=asset_allocation,
+            model_asset_allocation=model_asset_allocation,
         )
 
         return HealthMetrics(

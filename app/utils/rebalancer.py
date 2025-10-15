@@ -1,6 +1,7 @@
 import copy
 import logging
 import warnings
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -973,7 +974,7 @@ class Rebalancer:
     # ---------------------------
     # Orchestrator
     # ---------------------------
-    def rebalance(self, ports, ppm, hs, reset_state: bool = True, refresh_refs: bool = False) -> pd.DataFrame:
+    def rebalance(self, ports: Portfolios, ppm, hs, reset_state: bool = True, refresh_refs: bool = False) -> Tuple[Portfolios, pd.DataFrame]:
         try:
             logger = logging.getLogger(__name__)
             logger.debug("[rebalance] start | new_money=%s", self.new_money)

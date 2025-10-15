@@ -14,6 +14,7 @@ from app.models import (
     RebalanceRequest,
     RebalanceResponse,
 )
+from app.utils.health_service import override_client_style
 from app.utils.portfolios_service import PortfolioService
 from app.utils.rebalancer_mock import compute_portfolio_health
 from app.utils.utils import convert_portfolio_to_df
@@ -86,6 +87,16 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
     - state: FastAPI app.state providing ports, ppm, hs
     - request: validated RebalanceRequest
     """
+    # Extract client_style from request for style override during rebalance and health calculation
+    client_style = request.objective.client_style if request.objective else None
+
+    # Wrap entire rebalance logic with style override context
+    with override_client_style(state.ports, request.customer_id, client_style):
+        return _perform_rebalance_inner(state, request)
+
+
+def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> RebalanceResponse:
+    """Inner rebalance logic that runs within the style override context."""
     # Convert incoming portfolio to df and tag with customer id
     try:
         df_out = convert_portfolio_to_df(request.portfolio)
@@ -101,7 +112,10 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
     df_out["port_id_mapping"] = request.customer_id
 
     # Build style DataFrame
-    df_style_loaded = _build_df_style(request.customer_id, request.style)
+    # Prefer client_style from objective (new field), fallback to legacy style field
+    style_value = request.objective.client_style if request.objective else request.style
+    logger.debug(f"Style from request.style={request.style}, request.objective.client_style={request.objective.client_style if request.objective else None}")
+    df_style_loaded = _build_df_style(request.customer_id, style_value)
 
     # Create/assign portfolio ids
     # deepcopy ports to avoid modifying the original state
@@ -371,6 +385,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
     logger.debug(
         f"""
                 Rebalancing for customer_id={request.customer_id} as_of_date={as_of_date} customer_id_val={customer_id_val}
+                client_style={request.objective.client_style}
                 new_money={request.objective.new_money}
                 discretionary_acceptance={c.discretionary_acceptance}
                 client_classification={c.client_classification}
@@ -382,6 +397,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
                 product_blacklist={getattr(c, 'product_blacklist', None)}
                 """
     )
+    logger.debug(f"Style from df_style={df_style_loaded}")
 
     # Map legacy product_restriction to blacklist if new fields not provided
     product_whitelist = getattr(c, "product_whitelist", None)
@@ -395,6 +411,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
             if customer_id_val is not None and not pd.isna(customer_id_val)
             else None
         ),
+        client_investment_style=request.objective.client_style,
         new_money=request.objective.new_money,
         discretionary_acceptance=c.discretionary_acceptance,
         client_classification=c.client_classification,
@@ -583,6 +600,22 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
             except Exception:
                 asset_allocation = {}
 
+            # Model asset allocation (advisory model based on client investment style)
+            try:
+                model_alloc_df = new_ports.get_model_asset_allocation_lookthrough(state.ppm)
+                mrow = model_alloc_df.iloc[0] if model_alloc_df is not None and len(model_alloc_df) > 0 else None
+                model_asset_allocation = {
+                    "Cash and Cash Equivalent": float(mrow["aa_cash_model"]) if mrow is not None else 0.0,
+                    "Fixed Income": float(mrow["aa_fi_model"]) if mrow is not None else 0.0,
+                    "Local Equity": float(mrow["aa_le_model"]) if mrow is not None else 0.0,
+                    "Global Equity": float(mrow["aa_ge_model"]) if mrow is not None else 0.0,
+                    "Alternative": float(mrow["aa_alt_model"]) if mrow is not None else 0.0,
+                    "Allocation": 0.0,
+                }
+            except Exception as e:
+                logger.error("Failed to retrieve model asset allocation for proposed portfolio: %s", e)
+                model_asset_allocation = {}
+
             from app.models import HealthDetailMetrics
 
             detail = HealthDetailMetrics(
@@ -606,6 +639,7 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
                 score_non_cover_mutual_fund=int(row.get("score_non_cover_mutual_fund", 0) or 0),
                 score_not_monitored_product=float(row.get("score_not_monitored_product", 0.0) or 0.0),
                 asset_allocation=asset_allocation,
+                model_asset_allocation=model_asset_allocation,
             )
 
             health = float(row.get("health_score", 0.0) or 0.0)
