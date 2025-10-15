@@ -14,7 +14,7 @@ from app.models import (
     RebalanceRequest,
     RebalanceResponse,
 )
-from app.utils.health_service import override_client_style
+from app.utils.health_service import STYLE_MAP, override_client_style
 from app.utils.portfolios_service import PortfolioService
 from app.utils.rebalancer_mock import compute_portfolio_health
 from app.utils.utils import convert_portfolio_to_df
@@ -22,62 +22,83 @@ from app.utils.utils import convert_portfolio_to_df
 logger = logging.getLogger(__name__)
 
 
-def _build_df_style(customer_id: int, style: Any) -> pd.DataFrame:
+def _build_df_style(
+    customer_id: int,
+    style: str | dict[str, Any] | list[dict[str, Any] | str] | None
+) -> pd.DataFrame:
     """Normalize style payload into a single-row DataFrame.
 
-    Accepts style as a string, dict, or list of dicts/strings and produces columns:
-    - customer_id (int)
-    - port_investment_style (str)
-    - portpop_style (str)
+    Args:
+        customer_id: Customer ID to associate with the style
+        style: Investment style in various formats:
+            - str: Direct style name (e.g., "High Risk")
+            - dict: Style object with keys like "client_style", "INVESTMENT_STYLE"
+            - list: List of style dicts or strings (uses first element)
+            - None: Uses default "High Risk"
+
+    Returns:
+        Single-row DataFrame with columns:
+            - customer_id (int)
+            - port_investment_style (str): Original style label
+            - portpop_style (str): Mapped style for PortProp system
+
+    Raises:
+        ValueError: If customer_id is invalid
     """
-    style_map = {
-        "Bulletproof": "Conservative",
-        "Conservative": "Conservative",
-        "Moderate Low Risk": "Medium to Moderate Low Risk",
-        "Moderate High Risk": "Medium to Moderate High Risk",
-        "High Risk": "High Risk",
-        "Aggressive Growth": "Aggressive",
-        "Unwavering": "Aggressive",
-    }
+    # Validate customer_id
+    if not isinstance(customer_id, int) or customer_id <= 0:
+        raise ValueError(f"Invalid customer_id: {customer_id}. Must be a positive integer.")
 
-    # Derive a string label from supported inputs
-    label = None
-    try:
-        if isinstance(style, str):
-            label = style
-        elif isinstance(style, dict):
+    # Extract style label from various input formats
+    label: str | None = None
+
+    if style is None:
+        label = None
+    elif isinstance(style, str):
+        label = style.strip() if style.strip() else None
+    elif isinstance(style, dict):
+        # Try multiple possible keys for style
+        label = (
+            style.get("client_style")
+            or style.get("style")
+            or style.get("INVESTMENT_STYLE")
+            or style.get("INVESTMENT_STYLE_AUMX")
+        )
+    elif isinstance(style, list) and len(style) > 0:
+        first = style[0]
+        if isinstance(first, str):
+            label = first.strip() if first.strip() else None
+        elif isinstance(first, dict):
             label = (
-                style.get("INVESTMENT_STYLE_AUMX")
-                or style.get("INVESTMENT_STYLE")
-                or style.get("style")
-                or style.get("client_style")
+                first.get("client_style")
+                or first.get("style")
+                or first.get("INVESTMENT_STYLE")
+                or first.get("INVESTMENT_STYLE_AUMX")
             )
-        elif isinstance(style, list) and len(style) > 0:
-            first = style[0]
-            if isinstance(first, str):
-                label = first
-            elif isinstance(first, dict):
-                label = (
-                    first.get("INVESTMENT_STYLE_AUMX")
-                    or first.get("INVESTMENT_STYLE")
-                    or first.get("style")
-                    or first.get("client_style")
-                )
-    except Exception:
-        # Best-effort parsing only
-        pass
 
+    # Default to "High Risk" if no valid label found
     if not label:
         label = "High Risk"
+        logger.debug(
+            "No valid style provided for customer_id=%s, defaulting to 'High Risk'",
+            customer_id
+        )
+
+    # Map to PortProp style name
+    portpop_style = STYLE_MAP.get(label, "High Risk")
+    if label not in STYLE_MAP:
+        logger.warning(
+            "Unknown investment style '%s' for customer_id=%s, mapping to 'High Risk'",
+            label, customer_id
+        )
 
     data = {
         "customer_id": customer_id,
         "port_investment_style": label,
-        "portpop_style": style_map.get(label, "High Risk"),
+        "portpop_style": portpop_style,
     }
-    # Build a single-row DataFrame to avoid pandas scalar dict error
-    df = pd.DataFrame([data])
-    return df
+
+    return pd.DataFrame([data])
 
 
 def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceResponse:
@@ -137,37 +158,22 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
             for col in enriched_cols
         )
 
-        logger.debug("[TEMP-DEBUG] Portfolio enrichment check:")
-        logger.debug(
-            f"[TEMP-DEBUG] - Required cols present: {[c for c in required_cols if c in df_out.columns]}"
-        )
-        logger.debug(
-            f"[TEMP-DEBUG] - Enriched cols present: {[c for c in enriched_cols if c in df_out.columns]}"
-        )
-        logger.debug(f"[TEMP-DEBUG] - Is already enriched: {is_already_enriched}")
-
         if is_already_enriched:
-            logger.debug(
-                "[TEMP-DEBUG] Portfolio is already enriched, skipping product mapping"
-            )
-            # Ensure all required columns exist even if already enriched
+            # Ensure all required columns exist
             for c in required_cols:
                 if c not in df_out.columns:
                     df_out[c] = pd.NA
 
-            # Since frontend now sends complete data, we expect no NA values in enriched columns
+            # Validate enriched data has no missing values
             enriched_na_mask = df_out[enriched_cols].isna().any(axis=1)
             if enriched_na_mask.any():
-                logger.warning(
-                    f"[UNEXPECTED] Found {enriched_na_mask.sum()} rows with NA in enriched columns despite being marked as enriched"
+                na_count = enriched_na_mask.sum()
+                na_rows = df_out.loc[enriched_na_mask, ["product_id", "src_sharecodes"]]
+                raise ValueError(
+                    f"Portfolio data validation failed: {na_count} positions have missing enriched data. "
+                    f"Missing data in columns: {enriched_cols}. "
+                    f"Affected products: {na_rows['product_id'].tolist()}"
                 )
-                # Log the problematic rows for debugging
-                na_rows = df_out.loc[
-                    enriched_na_mask,
-                    ["product_id", "src_sharecodes", "desk"] + enriched_cols,
-                ]
-                logger.warning(f"Rows with NA values:\n{na_rows}")
-                is_already_enriched = False  # Force mapping as fallback
 
         if not is_already_enriched:
             # Original product mapping logic for non-enriched data
@@ -190,26 +196,14 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
                     )
                 )
                 pm_sub = pm[cols_map].copy()
-                missing_rows = df_out.loc[mask_missing]
 
-                # First try exact match with src_sharecodes + product_id + currency
+                # Try exact match with src_sharecodes + product_id + currency
                 use_keys = ["src_sharecodes", "product_id", "currency"]
-                logger.debug("[TEMP-DEBUG] Before product mapping merge:")
-                logger.debug(
-                    f"[TEMP-DEBUG] - df_out sample keys: {df_out[use_keys].head(3) if all(k in df_out.columns for k in use_keys) else 'MISSING KEYS'}"
-                )
-                logger.debug(
-                    f"[TEMP-DEBUG] - pm_sub sample keys: {pm_sub[use_keys].head(3) if all(k in pm_sub.columns for k in use_keys) else 'MISSING KEYS'}"
-                )
-
                 merged = df_out.merge(
                     pm_sub, on=use_keys, how="left", suffixes=("", "_pm")
                 )
-                logger.debug(
-                    f"[TEMP-DEBUG] After first merge - rows with missing symbol_pm: {merged['symbol_pm'].isna().sum()}/{len(merged)}"
-                )
 
-                # Check if any positions still need mapping after initial merge
+                # Validate all positions were successfully mapped
                 still_missing = (
                     merged[
                         [
@@ -222,44 +216,26 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
                     .all(axis=1)
                 )
                 if still_missing.any():
-                    logger.warning(
-                        f"[UNEXPECTED] {still_missing.sum()} positions could not be mapped despite proper srcSharecodes from frontend"
-                    )
-                    # Log the problematic rows for debugging
+                    missing_count = still_missing.sum()
                     missing_rows = df_out.loc[
                         still_missing,
-                        [
-                            "product_id",
-                            "src_sharecodes",
-                            "desk",
-                            "port_type",
-                            "currency",
-                        ],
+                        ["product_id", "src_sharecodes", "desk", "currency"],
                     ]
-                    logger.warning(f"Unmapped positions:\n{missing_rows}")
-                    # Since frontend should send complete data, this indicates a data quality issue
+                    raise ValueError(
+                        f"Product mapping failed: {missing_count} positions could not be mapped to product_mapping. "
+                        f"This indicates missing or invalid product data. "
+                        f"Unmapped products: {missing_rows.to_dict('records')}"
+                    )
 
                 # Apply mapped values to main columns
-                logger.debug(
-                    f"[TEMP-DEBUG] Before applying mapped values - symbol NA count: {merged['symbol'].isna().sum() if 'symbol' in merged.columns else 'NO SYMBOL COL'}"
-                )
-
                 for c in required_cols:
                     src_col = c if c in merged.columns else f"{c}_pm"
                     if src_col in merged.columns:
-                        before_na = (
-                            merged[c].isna().sum() if c in merged.columns else "NEW_COL"
-                        )
                         merged[c] = (
                             merged[c].fillna(merged[src_col])
                             if c in merged.columns
                             else merged[src_col]
                         )
-                        after_na = merged[c].isna().sum()
-                        if before_na != after_na:
-                            logger.debug(
-                                f"[TEMP-DEBUG] Column {c}: NA count changed from {before_na} to {after_na}"
-                            )
 
                 for c in [
                     "symbol",
@@ -269,30 +245,11 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
                 ]:
                     src_col = c if c in merged.columns else f"{c}_pm"
                     if src_col in merged.columns:
-                        before_na = (
-                            merged[c].isna().sum() if c in merged.columns else "NEW_COL"
-                        )
                         merged[c] = (
                             merged[c].fillna(merged[src_col])
                             if c in merged.columns
                             else merged[src_col]
                         )
-                        after_na = merged[c].isna().sum()
-                        if str(before_na) != str(after_na):
-                            logger.debug(
-                                f"[TEMP-DEBUG] Column {c}: NA count changed from {before_na} to {after_na}"
-                            )
-
-                logger.debug("[TEMP-DEBUG] After applying mapped values:")
-                logger.debug(
-                    f"[TEMP-DEBUG] - symbol NA count: {merged['symbol'].isna().sum()}"
-                )
-                logger.debug(
-                    f"[TEMP-DEBUG] - asset_class_name NA count: {merged['asset_class_name'].isna().sum()}"
-                )
-                logger.debug(
-                    f"[TEMP-DEBUG] - symbol sample: {merged['symbol'].dropna().head(3).tolist()}"
-                )
 
                 df_out = merged[
                     df_out.columns.union(
@@ -306,35 +263,17 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
                     )
                 ]
 
-                logger.debug("[TEMP-DEBUG] Final df_out after enrichment:")
-                logger.debug(f"[TEMP-DEBUG] - Total rows: {len(df_out)}")
-                logger.debug(
-                    f"[TEMP-DEBUG] - symbol NA count: {df_out['symbol'].isna().sum()}"
-                )
-                logger.debug(
-                    f"[TEMP-DEBUG] - asset_class_name NA count: {df_out['asset_class_name'].isna().sum()}"
-                )
-                logger.debug(
-                    f"[TEMP-DEBUG] - pp_asset_sub_class NA count: {df_out['pp_asset_sub_class'].isna().sum() if 'pp_asset_sub_class' in df_out.columns else 'NO COLUMN'}"
-                )
-
+                # Validate mapping was successful - all required columns should be filled
                 mask_missing_after = df_out[required_cols].isna().any(axis=1)
                 if mask_missing_after.any():
+                    missing_count = mask_missing_after.sum()
                     sample = df_out.loc[
                         mask_missing_after, required_cols + ["src_sharecodes", "symbol"]
                     ].head(5)
-                logger.debug("unmapped rows after enrichment=\n%s", sample)
-                # Don't raise error, just log and continue with what we have
-                logger.warning(
-                    "Some portfolio positions could not be fully enriched with product_mapping"
-                )
-            else:
-                logger.debug(
-                    "[TEMP-DEBUG] SUCCESS: All rows have required columns filled after enrichment"
-                )
-        logger.debug(
-            "df_out enriched shape=%s cols=%s", df_out.shape, list(df_out.columns)
-        )
+                    raise ValueError(
+                        f"Product enrichment incomplete: {missing_count} positions still have missing required data after mapping. "
+                        f"Sample rows: {sample.to_dict('records')}"
+                    )
     except Exception:
         logger.exception("Enrichment with product_mapping failed")
         raise
@@ -439,57 +378,12 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
         logger.debug(
             "Failed to copy rebalancer refs from state; proceeding with whatever is loaded"
         )
-    try:
-        logger.debug("ports.df_out head=\n%s", ports.df_out.head())
-    except Exception:
-        logger.debug("ports.df_out not available for preview")
-    # [TEMP-DEBUG] Compare portfolio keys vs product_mapping for non-TRADE desks
-    try:
-        df_keys = ports.df_out[
-            [
-                "src_sharecodes",
-                "product_id",
-                "desk",
-                "port_type",
-                "currency",
-                "asset_class_name",
-            ]
-        ].drop_duplicates()
-        non_trade = df_keys[(df_keys["desk"].astype(str) != "TRADE")]
-        if not non_trade.empty:
-            logger.debug("non-TRADE portfolio keys (sample)=\n%s", non_trade.head(10))
-            syms = non_trade["src_sharecodes"].dropna().astype(str).unique().tolist()
-            pm_cols = [
-                "src_sharecodes",
-                "product_id",
-                "desk",
-                "port_type",
-                "currency",
-                "symbol",
-                "product_type_desc",
-                "asset_class_name",
-            ]
-            pm_slice = state.ports.product_mapping[
-                state.ports.product_mapping["src_sharecodes"].astype(str).isin(syms)
-            ][pm_cols].drop_duplicates()
-            logger.debug(
-                "product_mapping candidates for non-TRADE symbols (sample)=\n%s",
-                pm_slice.head(20),
-            )
-            logger.debug("join keys used by rebalancer=%s", state.ports.prod_comp_keys)
-    except Exception:
-        logger.debug("TEMP-DEBUG non-TRADE key comparison failed")
-    logger.debug("Rebalancing...")
+    # Execute rebalancing
     try:
         new_ports, actions_df = rb_local.rebalance(port, state.ppm, state.hs)
     except Exception as e:
         logger.exception("Rebalance failed: %s", e)
         raise
-    logger.debug(
-        "Rebalance completed [actions_df is None=%s | empty=%s]",
-        actions_df is None,
-        (False if actions_df is None else actions_df.empty),
-    )
 
     # Helper functions for handling NA values safely
     def safe_str(val, default="UNKNOWN"):
