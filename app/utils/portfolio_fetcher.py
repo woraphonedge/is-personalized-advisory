@@ -23,7 +23,7 @@ def get_portfolio_for_customer(ports, customer_id: int):
     - customer_id: numeric customer id
 
     Returns
-    - Portfolio model instance (from app.models.Portfolio)
+    - Tuple of (Portfolio model instance, client_style string or None)
     """
     # Lazy import to avoid circular import at module level
     from app.models import Portfolio  # type: ignore
@@ -39,6 +39,23 @@ def get_portfolio_for_customer(ports, customer_id: int):
             customer_id,
         )
         raise ValueError("No portfolio found for customer")
+
+    # Extract client investment style from df_style
+    # If multiple as_of_date exist, pick the one with max as_of_date
+    client_style = None
+    try:
+        if client_port.df_style is not None and not client_port.df_style.empty:
+            df_style = client_port.df_style
+            if "as_of_date" in df_style.columns:
+                # Pick style from max as_of_date
+                max_date_row = df_style.loc[df_style["as_of_date"].idxmax()]
+                client_style = max_date_row.get("port_investment_style")
+            else:
+                # No as_of_date column, just take first row
+                client_style = df_style.iloc[0].get("port_investment_style")
+            logger.debug("Extracted client_style=%s for customer_id=%s", client_style, customer_id)
+    except Exception as e:
+        logger.warning("Failed to extract client_style for customer_id=%s: %s", customer_id, e)
 
     # Normalize null-like values for flags
     try:
@@ -105,5 +122,5 @@ def get_portfolio_for_customer(ports, customer_id: int):
         )
 
     portfolio_model = Portfolio(positions=positions)
-    logger.debug("Built Portfolio model with %d positions", len(positions))
-    return portfolio_model
+    logger.debug("Built Portfolio model with %d positions and client_style=%s", len(positions), client_style)
+    return portfolio_model, client_style

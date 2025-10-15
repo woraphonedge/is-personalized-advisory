@@ -127,6 +127,20 @@ class Portfolio(BaseModel):
         return weights
 
 
+class PortfolioResponse(BaseModel):
+    """Response model for portfolio endpoint that includes portfolio data and client style."""
+    portfolio: Portfolio = Field(description="Portfolio with positions")
+    client_style: Optional[str] = Field(
+        default=None,
+        alias="clientStyle",
+        description="Client investment style from df_style (e.g., 'High Risk', 'Conservative', 'Unwavering')"
+    )
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+
+
 class AssetClass(str, Enum):
     GLOBAL_EQUITY = "Global Equity"
     LOCAL_EQUITY = "Local Equity"
@@ -221,6 +235,13 @@ class HealthMetricsRequest(BaseModel):
     customer_id: int
     target_alloc: Dict[str, float]
     portfolio: Optional[Portfolio] = None
+    client_style: Optional[str] = Field(
+        default=None,
+        description="Client investment style (e.g., 'High Risk', 'Conservative', 'Aggressive Growth'). "
+                    "NOTE: Currently not used in health score calculation. The system uses the stored "
+                    "style from df_style (port_investment_style column) which is loaded at startup. "
+                    "Future implementation should override the stored style with this value when provided."
+    )
 
 
 class ActionLog(BaseModel):

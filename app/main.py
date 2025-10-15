@@ -42,6 +42,7 @@ from .models import (
     ActionLog,
     HealthMetrics,
     HealthMetricsRequest,
+    PortfolioResponse,
     RebalanceRequest,
     RebalanceRequestMock,
     RebalanceResponse,
@@ -57,13 +58,17 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.get("/api/v1/portfolio/{customer_id}")
+@app.get("/api/v1/portfolio/{customer_id}", response_model=PortfolioResponse)
 def get_portfolio(customer_id: int, request: Request):
     """Return the current portfolio for the specified customer.
 
     This pulls client positions as of the configured date using
     `app.state.ports_repo.load_client_out_product_enriched` and maps them
     to the public `Portfolio` model with camelCase field aliases.
+
+    Returns a PortfolioResponse containing:
+    - portfolio: Portfolio with positions
+    - clientStyle: Client investment style from df_style
     """
     # Trace request context for debugging
     try:
@@ -95,9 +100,9 @@ def get_portfolio(customer_id: int, request: Request):
         ) from e
 
     try:
-        # Delegate to utility to build Portfolio model
-        portfolio_model = get_portfolio_for_customer(app.state.ports, cust_id_int)
-        return portfolio_model
+        # Delegate to utility to build Portfolio model and extract client style
+        portfolio_model, client_style = get_portfolio_for_customer(app.state.ports, cust_id_int)
+        return PortfolioResponse(portfolio=portfolio_model, clientStyle=client_style)
     except HTTPException:
         # re-raise expected errors
         raise
@@ -187,18 +192,32 @@ def get_health_score_real(request: HealthMetricsRequest) -> HealthMetrics:
     This uses the in-memory dataset loaded at startup (see `app.data_store`) to
     slice the client's current portfolio by `customer_id` and compute health
     metrics using the same pipeline as the sample notebook.
+
+    NOTE: The `client_style` parameter is accepted but not currently used.
+    The health score calculation relies on the stored investment style from
+    `df_style` (port_investment_style column) which is loaded at startup from
+    the database.
+
+    TODO: Future implementation should:
+    1. Pass `client_style` to `get_health_metrics_for_customer()`
+    2. Update `get_health_metrics_for_customer()` to accept and use client_style
+    3. Override the stored df_style.port_investment_style with the provided value
+    4. This will allow dynamic health score recalculation when user changes style
+       in the UI without requiring a full data reload
     """
     try:
         cust_id = int(request.customer_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail="customer_id must be numeric") from e
 
+    # TODO: Pass request.client_style to get_health_metrics_for_customer when implemented
     try:
         return get_health_metrics_for_customer(
             ports=app.state.ports,
             ppm=app.state.ppm,
             hs=app.state.hs,
             customer_id=cust_id,
+            # client_style=request.client_style,  # Uncomment when implemented
         )
     except HTTPException:
         raise
