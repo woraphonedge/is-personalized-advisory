@@ -168,7 +168,7 @@ class Constraints(BaseModel):
 
 
 class RebalanceRequestMock(BaseModel):
-    customer_id: str
+    customer_id: int
     objective: Objective
     constraints: Constraints
     portfolio: Optional[Portfolio] = None

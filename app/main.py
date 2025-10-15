@@ -58,7 +58,7 @@ def health_check():
 
 
 @app.get("/api/v1/portfolio/{customer_id}")
-def get_portfolio(customer_id: str, request: Request):
+def get_portfolio(customer_id: int, request: Request):
     """Return the current portfolio for the specified customer.
 
     This pulls client positions as of the configured date using
