@@ -101,218 +101,192 @@ def _build_df_style(
     return pd.DataFrame([data])
 
 
-def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceResponse:
-    """Core rebalancing logic extracted from FastAPI route.
+def _enrich_portfolio_data(
+    df_portfolio: pd.DataFrame,
+    product_mapping: pd.DataFrame | None
+) -> pd.DataFrame:
+    """Enrich portfolio data with product information from product_mapping.
 
-    Parameters
-    - state: FastAPI app.state providing ports, ppm, hs
-    - request: validated RebalanceRequest
+    Args:
+        df_portfolio: Portfolio DataFrame with positions
+        product_mapping: Product mapping DataFrame with enrichment data
+
+    Returns:
+        Enriched DataFrame with symbol, asset_class_name, product_type_desc, etc.
+
+    Raises:
+        ValueError: If portfolio data validation fails or mapping is incomplete
     """
-    # Extract client_style from request for style override during rebalance and health calculation
-    client_style = request.objective.client_style if request.objective else None
+    required_cols = [
+        "product_id",
+        "src_sharecodes",
+        "desk",
+        "port_type",
+        "currency",
+    ]
+    enriched_cols = ["asset_class_name", "product_type_desc", "symbol"]
 
-    # Wrap entire rebalance logic with style override context
-    with override_client_style(state.ports, request.customer_id, client_style):
-        return _perform_rebalance_inner(state, request)
+    # Check if data is already enriched (from portfolio_fetcher)
+    is_already_enriched = all(
+        col in df_portfolio.columns and not df_portfolio[col].isna().all()
+        for col in enriched_cols
+    )
 
+    if is_already_enriched:
+        # Ensure all required columns exist
+        for c in required_cols:
+            if c not in df_portfolio.columns:
+                df_portfolio[c] = pd.NA
 
-def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> RebalanceResponse:
-    """Inner rebalance logic that runs within the style override context."""
-    # Convert incoming portfolio to df and tag with customer id
-    try:
-        df_out = convert_portfolio_to_df(request.portfolio)
-        logger.debug(
-            "converted portfolio df columns=%s rows=%d",
-            list(df_out.columns),
-            len(df_out),
+        # Validate enriched data has no missing values
+        enriched_na_mask = df_portfolio[enriched_cols].isna().any(axis=1)
+        if enriched_na_mask.any():
+            na_count = enriched_na_mask.sum()
+            na_rows = df_portfolio.loc[enriched_na_mask, ["product_id", "src_sharecodes"]]
+            raise ValueError(
+                f"Portfolio data validation failed: {na_count} positions have missing enriched data. "
+                f"Missing data in columns: {enriched_cols}. "
+                f"Affected products: {na_rows['product_id'].tolist()}"
+            )
+        return df_portfolio
+
+    # Need to enrich from product_mapping
+    for c in required_cols:
+        if c not in df_portfolio.columns:
+            df_portfolio[c] = pd.NA
+
+    mask_missing = df_portfolio[required_cols].isna().any(axis=1)
+
+    if product_mapping is None:
+        raise ValueError("product_mapping not loaded in server state")
+
+    if not mask_missing.any():
+        # All required columns already filled
+        return df_portfolio
+
+    # Prepare product mapping subset
+    cols_map = list(
+        set(
+            required_cols
+            + [
+                "symbol",
+                "product_display_name",
+                "product_type_desc",
+                "asset_class_name",
+            ]
         )
-    except Exception as e:
-        logger.exception("Failed to convert portfolio to DataFrame: %s", e)
-        raise
-    df_out["customer_id"] = request.customer_id
-    df_out["port_id_mapping"] = request.customer_id
+    )
+    pm_sub = product_mapping[cols_map].copy()
 
-    # Build style DataFrame
-    # Prefer client_style from objective (new field), fallback to legacy style field
-    style_value = request.objective.client_style if request.objective else request.style
-    logger.debug(f"Style from request.style={request.style}, request.objective.client_style={request.objective.client_style if request.objective else None}")
-    df_style_loaded = _build_df_style(request.customer_id, style_value)
+    # Try exact match with src_sharecodes + product_id + currency
+    use_keys = ["src_sharecodes", "product_id", "currency"]
+    merged = df_portfolio.merge(
+        pm_sub, on=use_keys, how="left", suffixes=("", "_pm")
+    )
 
-    # Create/assign portfolio ids
-    # deepcopy ports to avoid modifying the original state
-    ports = copy.deepcopy(state.ports)
-    try:
-        pm = getattr(ports, "product_mapping", None)
-        required_cols = [
-            "product_id",
-            "src_sharecodes",
-            "desk",
-            "port_type",
-            "currency",
+    # Validate all positions were successfully mapped
+    still_missing = (
+        merged[
+            [
+                f"{c}_pm"
+                for c in required_cols
+                if f"{c}_pm" in merged.columns
+            ]
         ]
-
-        # Check if data is already enriched (from portfolio_fetcher)
-        enriched_cols = ["asset_class_name", "product_type_desc", "symbol"]
-        is_already_enriched = all(
-            col in df_out.columns and not df_out[col].isna().all()
-            for col in enriched_cols
+        .isna()
+        .all(axis=1)
+    )
+    if still_missing.any():
+        missing_count = still_missing.sum()
+        missing_rows = df_portfolio.loc[
+            still_missing,
+            ["product_id", "src_sharecodes", "desk", "currency"],
+        ]
+        raise ValueError(
+            f"Product mapping failed: {missing_count} positions could not be mapped to product_mapping. "
+            f"This indicates missing or invalid product data. "
+            f"Unmapped products: {missing_rows.to_dict('records')}"
         )
 
-        if is_already_enriched:
-            # Ensure all required columns exist
-            for c in required_cols:
-                if c not in df_out.columns:
-                    df_out[c] = pd.NA
+    # Apply mapped values to main columns
+    for c in required_cols:
+        src_col = c if c in merged.columns else f"{c}_pm"
+        if src_col in merged.columns:
+            merged[c] = (
+                merged[c].fillna(merged[src_col])
+                if c in merged.columns
+                else merged[src_col]
+            )
 
-            # Validate enriched data has no missing values
-            enriched_na_mask = df_out[enriched_cols].isna().any(axis=1)
-            if enriched_na_mask.any():
-                na_count = enriched_na_mask.sum()
-                na_rows = df_out.loc[enriched_na_mask, ["product_id", "src_sharecodes"]]
-                raise ValueError(
-                    f"Portfolio data validation failed: {na_count} positions have missing enriched data. "
-                    f"Missing data in columns: {enriched_cols}. "
-                    f"Affected products: {na_rows['product_id'].tolist()}"
-                )
+    for c in [
+        "symbol",
+        "product_display_name",
+        "product_type_desc",
+        "asset_class_name",
+    ]:
+        src_col = c if c in merged.columns else f"{c}_pm"
+        if src_col in merged.columns:
+            merged[c] = (
+                merged[c].fillna(merged[src_col])
+                if c in merged.columns
+                else merged[src_col]
+            )
 
-        if not is_already_enriched:
-            # Original product mapping logic for non-enriched data
-            for c in required_cols:
-                if c not in df_out.columns:
-                    df_out[c] = pd.NA
-            mask_missing = df_out[required_cols].isna().any(axis=1)
-            if pm is None:
-                raise ValueError("product_mapping not loaded in server state")
-            if mask_missing.any():
-                cols_map = list(
-                    set(
-                        required_cols
-                        + [
-                            "symbol",
-                            "product_display_name",
-                            "product_type_desc",
-                            "asset_class_name",
-                        ]
-                    )
-                )
-                pm_sub = pm[cols_map].copy()
+    df_out = merged[
+        df_portfolio.columns.union(
+            [
+                "symbol",
+                "product_display_name",
+                "product_type_desc",
+                "asset_class_name",
+            ],
+            sort=False,
+        )
+    ]
 
-                # Try exact match with src_sharecodes + product_id + currency
-                use_keys = ["src_sharecodes", "product_id", "currency"]
-                merged = df_out.merge(
-                    pm_sub, on=use_keys, how="left", suffixes=("", "_pm")
-                )
+    # Validate mapping was successful - all required columns should be filled
+    mask_missing_after = df_out[required_cols].isna().any(axis=1)
+    if mask_missing_after.any():
+        missing_count = mask_missing_after.sum()
+        sample = df_out.loc[
+            mask_missing_after, required_cols + ["src_sharecodes", "symbol"]
+        ].head(5)
+        raise ValueError(
+            f"Product enrichment incomplete: {missing_count} positions still have missing required data after mapping. "
+            f"Sample rows: {sample.to_dict('records')}"
+        )
 
-                # Validate all positions were successfully mapped
-                still_missing = (
-                    merged[
-                        [
-                            f"{c}_pm"
-                            for c in required_cols
-                            if f"{c}_pm" in merged.columns
-                        ]
-                    ]
-                    .isna()
-                    .all(axis=1)
-                )
-                if still_missing.any():
-                    missing_count = still_missing.sum()
-                    missing_rows = df_out.loc[
-                        still_missing,
-                        ["product_id", "src_sharecodes", "desk", "currency"],
-                    ]
-                    raise ValueError(
-                        f"Product mapping failed: {missing_count} positions could not be mapped to product_mapping. "
-                        f"This indicates missing or invalid product data. "
-                        f"Unmapped products: {missing_rows.to_dict('records')}"
-                    )
+    return df_out
 
-                # Apply mapped values to main columns
-                for c in required_cols:
-                    src_col = c if c in merged.columns else f"{c}_pm"
-                    if src_col in merged.columns:
-                        merged[c] = (
-                            merged[c].fillna(merged[src_col])
-                            if c in merged.columns
-                            else merged[src_col]
-                        )
 
-                for c in [
-                    "symbol",
-                    "product_display_name",
-                    "product_type_desc",
-                    "asset_class_name",
-                ]:
-                    src_col = c if c in merged.columns else f"{c}_pm"
-                    if src_col in merged.columns:
-                        merged[c] = (
-                            merged[c].fillna(merged[src_col])
-                            if c in merged.columns
-                            else merged[src_col]
-                        )
+def _create_rebalancer(state: Any, request: RebalanceRequest) -> Any:
+    """Create and configure a Rebalancer instance from request parameters.
 
-                df_out = merged[
-                    df_out.columns.union(
-                        [
-                            "symbol",
-                            "product_display_name",
-                            "product_type_desc",
-                            "asset_class_name",
-                        ],
-                        sort=False,
-                    )
-                ]
+    Args:
+        state: FastAPI app.state with shared rebalancer references
+        request: RebalanceRequest with constraints and objectives
 
-                # Validate mapping was successful - all required columns should be filled
-                mask_missing_after = df_out[required_cols].isna().any(axis=1)
-                if mask_missing_after.any():
-                    missing_count = mask_missing_after.sum()
-                    sample = df_out.loc[
-                        mask_missing_after, required_cols + ["src_sharecodes", "symbol"]
-                    ].head(5)
-                    raise ValueError(
-                        f"Product enrichment incomplete: {missing_count} positions still have missing required data after mapping. "
-                        f"Sample rows: {sample.to_dict('records')}"
-                    )
-    except Exception:
-        logger.exception("Enrichment with product_mapping failed")
-        raise
+    Returns:
+        Configured Rebalancer instance ready to execute rebalancing
 
-    df_out, df_style, port_ids, mapping = ports.create_portfolio_id(
-        df_out, df_style_loaded, column_mapping=["customer_id"]
-    )
-    logger.debug(
-        "created portfolio ids columns=%s rows=%d", list(df_out.columns), len(df_out)
-    )
-
-    ports.set_portfolio(df_out, df_style, port_ids, mapping)
-    port_service = PortfolioService(ports)
-    port = port_service.get_client_portfolio(request.customer_id)
-    logger.debug("head of port = \n%s", port.df_out.head())
-    # Instantiate and run rebalancer v2
-    from app.utils.rebalancer import Rebalancer  # local import to avoid circular issues
+    Raises:
+        ValueError: If constraints are invalid
+    """
+    from app.utils.rebalancer import Rebalancer
 
     c = request.constraints
-    # Try to infer optional fields from style
-    as_of_date = None
+
+    # Try to infer optional fields from legacy style field
     customer_id_val = None
     try:
         if isinstance(request.style, list) and len(request.style) > 0:
             tmp = pd.DataFrame(request.style)
-            as_of_date = (
-                str(tmp.get("AS_OF_DATE").iloc[0]) if "AS_OF_DATE" in tmp else None
-            )
             customer_id_val = (
                 pd.to_numeric(tmp.get("CUSTOMER_ID").iloc[0], errors="coerce")
                 if "CUSTOMER_ID" in tmp
                 else None
             )
         elif isinstance(request.style, dict):
-            as_of_date = (
-                str(request.style.get("AS_OF_DATE"))
-                if request.style.get("AS_OF_DATE") is not None
-                else None
-            )
             customer_id_val = (
                 pd.to_numeric(request.style.get("CUSTOMER_ID"), errors="coerce")
                 if request.style.get("CUSTOMER_ID") is not None
@@ -321,29 +295,13 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
     except Exception:
         pass
 
-    logger.debug(
-        f"""
-                Rebalancing for customer_id={request.customer_id} as_of_date={as_of_date} customer_id_val={customer_id_val}
-                client_style={request.objective.client_style}
-                new_money={request.objective.new_money}
-                discretionary_acceptance={c.discretionary_acceptance}
-                client_classification={c.client_classification}
-                private_percent={c.private_percent}
-                cash_percent={c.cash_percent}
-                offshore_percent={c.offshore_percent}
-                product_restriction={c.product_restriction}
-                product_whitelist={getattr(c, 'product_whitelist', None)}
-                product_blacklist={getattr(c, 'product_blacklist', None)}
-                """
-    )
-    logger.debug(f"Style from df_style={df_style_loaded}")
-
     # Map legacy product_restriction to blacklist if new fields not provided
     product_whitelist = getattr(c, "product_whitelist", None)
     product_blacklist = getattr(c, "product_blacklist", None)
     if (not product_blacklist) and c.product_restriction:
         product_blacklist = c.product_restriction
 
+    # Create rebalancer with validated parameters
     rb_local = Rebalancer(
         customer_id=(
             int(customer_id_val)
@@ -360,6 +318,7 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
         product_whitelist=product_whitelist,
         product_blacklist=product_blacklist,
     )
+
     # Copy reference tables from shared state rebalancer if available
     try:
         rb_state = getattr(state, "rb", None)
@@ -378,13 +337,30 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
         logger.debug(
             "Failed to copy rebalancer refs from state; proceeding with whatever is loaded"
         )
-    # Execute rebalancing
-    try:
-        new_ports, actions_df = rb_local.rebalance(port, state.ppm, state.hs)
-    except Exception as e:
-        logger.exception("Rebalance failed: %s", e)
-        raise
 
+    return rb_local
+
+
+def _compute_health_metrics(
+    new_ports: Any,
+    actions_df: pd.DataFrame | None,
+    state: Any,
+    request: RebalanceRequest
+) -> tuple[Portfolio, List[ActionLog], HealthMetrics]:
+    """Compute health metrics for the proposed portfolio.
+
+    Args:
+        new_ports: Rebalanced portfolio (Portfolios instance)
+        actions_df: DataFrame with rebalance actions
+        state: FastAPI app.state with ppm, hs
+        request: RebalanceRequest with target allocation
+
+    Returns:
+        Tuple of (proposed_portfolio_model, action_logs, health_metrics)
+
+    Raises:
+        Exception: If health metrics calculation fails completely
+    """
     # Helper functions for handling NA values safely
     def safe_str(val, default="UNKNOWN"):
         if pd.isna(val) or val is None:
@@ -399,10 +375,10 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
         except (ValueError, TypeError):
             return default
 
+    # Build action logs from rebalance actions
     action_logs: List[ActionLog] = []
     if actions_df is not None and not actions_df.empty:
         for _, r in actions_df.iterrows():
-            # Handle NA values safely for ActionLog
             action_logs.append(
                 ActionLog(
                     action=safe_str(r.get("flag"), "rebalance"),
@@ -417,7 +393,7 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
                 )
             )
 
-    # Build proposed portfolio model
+    # Build proposed portfolio model from rebalanced portfolio DataFrame
     positions: List[Position] = []
     proposed_portfolio_df = getattr(new_ports, "df_out", None)
     if proposed_portfolio_df is not None and not proposed_portfolio_df.empty:
@@ -458,18 +434,14 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
             )
     proposed_portfolio_model = Portfolio(positions=positions)
 
-    # Compute health metrics on proposed portfolio using real health score implementation
-    # Create a Portfolio object from the proposed portfolio DataFrame (same as notebook flow)
+    # Compute health metrics on proposed portfolio
     try:
-        # The new_ports object already has the proposed portfolio as a Portfolio instance
-        # We can directly call get_portfolio_health_score on it
         df_health, _comp = new_ports.get_portfolio_health_score(
             state.ppm, state.hs, cal_comp=True
         )
 
         if df_health is None or len(df_health) == 0:
             logger.warning("No health metrics returned from proposed portfolio, using mock")
-            # Fallback to mock implementation
             _metrics = compute_portfolio_health(
                 proposed_portfolio_model,
                 request.objective.target_alloc,
@@ -541,7 +513,6 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
 
     except Exception as e:
         logger.exception("Failed to compute real health score, falling back to mock: %s", e)
-        # Fallback to mock implementation
         _metrics = compute_portfolio_health(
             proposed_portfolio_model,
             request.objective.target_alloc,
@@ -549,9 +520,84 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
         health = _metrics.score
         health_metrics = HealthMetrics(score=health, metrics=_metrics.metrics)
 
+    return proposed_portfolio_model, action_logs, health_metrics
+
+
+def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceResponse:
+    """Core rebalancing logic extracted from FastAPI route.
+
+    Parameters
+    - state: FastAPI app.state providing ports, ppm, hs
+    - request: validated RebalanceRequest
+    """
+    # Extract client_style from request for style override during rebalance and health calculation
+    client_style = request.objective.client_style if request.objective else None
+
+    # Wrap entire rebalance logic with style override context
+    with override_client_style(state.ports, request.customer_id, client_style):
+        return _perform_rebalance_inner(state, request)
+
+
+def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> RebalanceResponse:
+    """Inner rebalance logic that runs within the style override context."""
+    # Convert incoming portfolio to df and tag with customer id
+    try:
+        df_out = convert_portfolio_to_df(request.portfolio)
+        logger.debug(
+            "converted portfolio df columns=%s rows=%d",
+            list(df_out.columns),
+            len(df_out),
+        )
+    except Exception as e:
+        logger.exception("Failed to convert portfolio to DataFrame: %s", e)
+        raise
+    df_out["customer_id"] = request.customer_id
+    df_out["port_id_mapping"] = request.customer_id
+
+    # Build style DataFrame
+    # Prefer client_style from objective (new field), fallback to legacy style field
+    style_value = request.objective.client_style if request.objective else request.style
+    logger.debug(f"Style from request.style={request.style}, request.objective.client_style={request.objective.client_style if request.objective else None}")
+    df_style_loaded = _build_df_style(request.customer_id, style_value)
+
+    # Enrich portfolio data with product mapping
+    ports = copy.deepcopy(state.ports)
+    try:
+        pm = getattr(ports, "product_mapping", None)
+        df_out = _enrich_portfolio_data(df_out, pm)
+    except Exception:
+        logger.exception("Enrichment with product_mapping failed")
+        raise
+
+    df_out, df_style, port_ids, mapping = ports.create_portfolio_id(
+        df_out, df_style_loaded, column_mapping=["customer_id"]
+    )
+    logger.debug(
+        "created portfolio ids columns=%s rows=%d", list(df_out.columns), len(df_out)
+    )
+
+    ports.set_portfolio(df_out, df_style, port_ids, mapping)
+    port_service = PortfolioService(ports)
+    port = port_service.get_client_portfolio(request.customer_id)
+
+    # Create and configure rebalancer
+    rb_local = _create_rebalancer(state, request)
+
+    # Execute rebalancing
+    try:
+        new_ports, actions_df = rb_local.rebalance(port, state.ppm, state.hs)
+    except Exception as e:
+        logger.exception("Rebalance failed: %s", e)
+        raise
+
+    # Compute health metrics and build response
+    proposed_portfolio_model, action_logs, health_metrics = _compute_health_metrics(
+        new_ports, actions_df, state, request
+    )
+
     return RebalanceResponse(
         actions=action_logs,
         portfolio=proposed_portfolio_model,
-        health_score=health,
+        health_score=health_metrics.score,
         health_metrics=health_metrics,
     )
