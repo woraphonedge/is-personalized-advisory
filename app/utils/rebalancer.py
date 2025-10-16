@@ -577,7 +577,7 @@ class Rebalancer:
                             "currency":       chosen_md["currency"],
                             "value":          0.0,
                             "weight":         cur_weight,
-                            "flag":           "discretionary_buy",  # hardcoded
+                            "flag":           "discretionary_buy",
                             "expected_weight":cur_weight + add_w,
                             "action":         "buy",
                             "amount":         amount,
@@ -797,7 +797,7 @@ class Rebalancer:
                 "asset_class_name":     r.get("asset_class_name", np.nan),
                 "value":          r.get("value", np.nan),
                 "weight":         r.get("weight", np.nan),
-                "flag":           "cash_overweight",  # hardcoded
+                "flag":           "cash_overweight",
                 "expected_weight": (r.get("weight", np.nan) - move_w) if pd.notna(r.get("weight", np.nan)) else np.nan,
                 "action":         "sell",
                 "amount":         amt_sell,
@@ -809,7 +809,7 @@ class Rebalancer:
             funding_buy = funding_buy.merge(cash_map, on="currency", how="left")
             funding_buy["value"] = np.nan
             funding_buy["weight"] = np.nan
-            funding_buy["flag"] = "cash_overweight_to_proxy"  # hardcoded
+            funding_buy["flag"] = "cash_proxy_funding"
             funding_buy["expected_weight"] = np.nan
             funding_buy["action"] = "funding"
             funding_buy = funding_buy[[c for c in self.reco_cols if c not in ["transaction_no", "batch_no"]]]
@@ -971,6 +971,74 @@ class Rebalancer:
         self.update_portfolio(ports, trade)
         return trade
 
+    @staticmethod
+    def readable_flag(flag: str) -> str:
+        if not flag or not isinstance(flag, str):
+            return ""
+
+        flags = [f.strip().lower() for f in flag.split(",") if f.strip()]
+        unique_flags = sorted(set(flags))
+
+        # --- SELL REASONS ---
+        sell_reasons = {
+            "bulk_risk": "overconcentration in a single product",
+            "issuer_risk": "high exposure to a single issuer",
+            "not_monitored_product": "product not actively monitored by research/investment solutions",
+            "sell_list": "internal sell recommendation",
+        }
+
+        # --- BUY REASONS ---
+        buy_reasons = {
+            "alternative_buy": "alternative",
+            "fixed_income_buy": "fixed income",
+            "local_equity_buy": "local equity",
+            "global_equity_buy": "global equity",
+            "discretionary_buy": "discretionary product aligned with the investment style",
+        }
+
+        # --- OTHER ACTIONS ---
+        other_actions = {
+            "cash_overweight": "Reduce cash holdings above the model target.",
+            "cash_proxy_funding": "Fund transactions through the cash proxy position.",
+            "new_money": "Add new money to the portfolio.",
+            "convert_currency": "Convert foreign cash into USD.",
+        }
+
+        # --- Detect category ---
+        is_buy = any(f.endswith("_buy") for f in unique_flags)
+        is_risk = any(f in sell_reasons for f in unique_flags)
+        is_cash = any(f.startswith("cash_") for f in unique_flags)
+        is_new_money = "new_money" in unique_flags
+        is_convert_ccy = "convert_currency" in unique_flags
+
+        # --- Sell Message ---
+        if is_risk:
+            reasons = [sell_reasons[f] for f in unique_flags if f in sell_reasons]
+            joined = "; ".join(reasons)
+            return f"Reduce or exit to manage {joined}."
+
+        # --- Buy Message ---
+        if is_buy:
+            buys = [buy_reasons[f] for f in unique_flags if f in buy_reasons]
+            buys_text = ", ".join(buys)
+            return f"Increase allocation to {buys_text} to align the portfolio with the model allocation."
+
+        # --- Cash Management ---
+        if is_cash:
+            actions = [other_actions[f] for f in unique_flags if f in other_actions]
+            return " ".join(actions)
+
+        # --- New Money ---
+        if is_new_money:
+            return other_actions["new_money"]
+
+        # --- Currency Conversion ---
+        if is_convert_ccy:
+            return other_actions["convert_currency"]
+
+        # --- Default Fallback ---
+        return f"Rebalance portfolio according to internal investment guidelines ({flag})."
+
     # ---------------------------
     # Orchestrator
     # ---------------------------
@@ -1027,6 +1095,9 @@ class Rebalancer:
                 )
                 return ports, pd.DataFrame(columns=self.reco_cols)
 
+            # Add human-readable flag message
+            self.recommendations["flag_msg"] = self.recommendations["flag"].apply(type(self).readable_flag)
+
             try:
                 logger.debug("[rebalance] final df_out rows=%s", len(self.new_ports.df_out))
             except Exception:
@@ -1039,7 +1110,7 @@ class Rebalancer:
             # if not self.recommendations.empty:
             #     return self.recommendations
 
-            return self.new_ports, pd.DataFrame(columns=self.reco_cols)
+            return self.new_ports, pd.DataFrame(columns=self.reco_cols+["flag_msg"])
 
         # ---------------------------
         # For Debug
