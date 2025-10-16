@@ -372,7 +372,7 @@ class Rebalancer:
             self.check_not_monitored(ports, ppm, hs),
             self.check_issuer_risk(ports, ppm, hs),
             self.check_bulk_risk(ports, ppm, hs),
-            self.check_es_sell_list(ports, ppm, hs)
+            # self.check_es_sell_list(ports, ppm, hs)
         ]
         bad_products = [p for p in bad_products if not p.empty]
         if not bad_products:
@@ -447,13 +447,13 @@ class Rebalancer:
                 continue
 
             # row-level minimum checks (BOTH must pass)
-            try:
-                w_change = abs(float(to_sell["weight"].iloc[0] - to_sell["expected_weight"].iloc[0]))
-            except Exception:
-                w_change = 0.0
-            a_abs = abs(float(to_sell["amount"].iloc[0] or 0.0))
-            if (w_change < self.min_weight_per_row) or (a_abs < self.min_amount_per_row):
-                continue
+            # try:
+            #     w_change = abs(float(to_sell["weight"].iloc[0] - to_sell["expected_weight"].iloc[0]))
+            # except Exception:
+            #     w_change = 0.0
+            # a_abs = abs(float(to_sell["amount"].iloc[0] or 0.0))
+            # if (w_change < self.min_weight_per_row) or (a_abs < self.min_amount_per_row):
+            #     continue
 
             # 1-to-1 funding per sell row
             funding = self.build_cash_proxy_funding(ports, to_sell[[c for c in self.reco_cols if c not in ["transaction_no", "batch_no"]]], per_row=True)
@@ -988,6 +988,8 @@ class Rebalancer:
 
             self.new_ports = copy.deepcopy(ports)
 
+            health_score_before = self.new_ports.get_portfolio_health_score(ppm, hs)[0]["health_score"].values[0]
+
             new_money = self.add_new_money(self.new_ports)
             if not new_money.empty:
                 self.recommendations = pd.concat([self.recommendations, new_money], ignore_index=True)
@@ -1015,6 +1017,16 @@ class Rebalancer:
             logger.debug("[rebalance] buys rows=%s", 0 if buys is None else len(buys))
 
             logger.debug("[rebalance] final recommendations rows=%s", len(self.recommendations))
+
+            health_score_after = self.new_ports.get_portfolio_health_score(ppm, hs)[0]["health_score"].values[0]
+
+            if health_score_after < health_score_before:
+                logger.warning(
+                    "[rebalance] health score decreased after rebalance: before=%.2f after=%.2f",
+                    health_score_before, health_score_after
+                )
+                return ports, pd.DataFrame(columns=self.reco_cols)
+
             try:
                 logger.debug("[rebalance] final df_out rows=%s", len(self.new_ports.df_out))
             except Exception:
@@ -1027,7 +1039,7 @@ class Rebalancer:
             # if not self.recommendations.empty:
             #     return self.recommendations
 
-            return self.new_ports, pd.DataFrame(columns=self.recommendations.columns)
+            return self.new_ports, pd.DataFrame(columns=self.reco_cols)
 
         # ---------------------------
         # For Debug
