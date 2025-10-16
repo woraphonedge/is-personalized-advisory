@@ -82,7 +82,6 @@ class PortfoliosRepository:
         return ports
 
     def load_client_style(
-        # TODO: may be it need to create cal function in local
         self,
         as_of_date: str,
         and_query: str = "",
@@ -91,27 +90,57 @@ class PortfoliosRepository:
         if and_query != "":
             and_query = "and " + and_query
 
-        dim_column_select = ["customer_id", "as_of_date"]
+        # Columns to select
+        dim_column_select = [
+            "A.AS_OF_DATE",
+            "A.CUSTOMER_ID",
+            "B.CLIENT_FULL_NAME_TH",
+            "B.CLIENT_FIRST_NAME_EN",
+            "B.CLIENT_LAST_NAME_EN",
+            f"A.{style_column} as port_investment_style",
+            "B.CLIENT_TIER",
+            "B.BUSINESS_UNIT",
+            "B.CLIENT_SEGMENT_BY_INV_AUM",
+            "B.CLIENT_SUB_SEGMENT_BY_INV_AUM",
+            "B.SALES_ID",
+            "B.UI_Client",
+            "C.SALES_FIRST_NAME_EN",
+            "C.SALES_TEAM",
+        ]
+
         where_query = (
-            f"WHERE AS_OF_DATE between '{as_of_date}' and '{as_of_date}' {and_query}"
+            f"WHERE A.AS_OF_DATE = '{as_of_date}' {and_query}"
         )
 
-        # prep query
         query = f"""
-            SELECT  {', '.join(dim_column_select)}
-                    , {style_column} as PORT_INVESTMENT_STYLE
-            FROM user.kwm.client_investment_style_as_of
+            SELECT {', '.join(dim_column_select)}
+            FROM user.kwm.client_investment_style_as_of A
+            LEFT JOIN edp.kkps_vw.v_pii_client_info B
+                ON A.CUSTOMER_ID = B.CUSTOMER_ID
+                AND B.DATA_DT = (SELECT max(DATA_DT) FROM edp.kkps_vw.v_pii_client_info)
+            LEFT JOIN edp.kkps_vw.v_pii_sales_info C
+                ON B.SALES_ID = C.SALES_ID
+                AND C.DATA_DT = (SELECT max(DATA_DT) FROM edp.kkps_vw.v_pii_sales_info)
             {where_query}
         """
 
-        # prep cache file
         cache_file = f"portfolios_client_style_{as_of_date}.parquet"
 
-        # prep type dict
         type_dict = {
             "as_of_date": "datetime64[ns]",
             "customer_id": "int",
+            "client_full_name_th": "string",
+            "client_first_name_en": "string",
+            "client_last_name_en": "string",
             "port_investment_style": "string",
+            "client_tier": "string",
+            "business_unit": "string",
+            "client_segment_by_inv_aum": "string",
+            "client_sub_segment_by_inv_aum": "string",
+            "sales_id": "string",
+            "ui_client": "string",
+            "sales_first_name_en": "string",
+            "sales_team": "string",
         }
 
         styles = self.data_loader.load_data(
