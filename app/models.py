@@ -329,3 +329,29 @@ class HealthMetrics(BaseModel):
 
     score: float = Field(description="Overall health score (mirrors notebook health_score)")
     metrics: HealthDetailMetrics
+
+
+class ClientListItem(BaseModel):
+    """Individual client item in the client list response."""
+    customer_id: int = Field(alias="customerId")
+    client_full_name_th: Optional[str] = Field(default=None, alias="clientFullNameTh")
+    client_first_name_en: Optional[str] = Field(default=None, alias="clientFirstNameEn")
+    port_investment_style: Optional[str] = Field(default=None, alias="portInvestmentStyle")
+    client_tier: Optional[str] = Field(default=None, alias="clientTier")
+    business_unit: Optional[str] = Field(default=None, alias="businessUnit")
+    client_segment_by_inv_aum: Optional[str] = Field(default=None, alias="clientSegmentByInvAum")
+    client_sub_segment_by_inv_aum: Optional[str] = Field(default=None, alias="clientSubSegmentByInvAum")
+    sales_id: Optional[str] = Field(default=None, alias="salesId")
+    ui_client: Optional[str] = Field(default=None, alias="uiClient")
+    sales_first_name_en: Optional[str] = Field(default=None, alias="salesFirstNameEn")
+    sales_team: Optional[str] = Field(default=None, alias="salesTeam")
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
+
+
+class ClientListResponse(BaseModel):
+    """Response model for client list endpoint."""
+    clients: List[ClientListItem] = Field(description="List of matching clients")
+    total: int = Field(description="Total number of matches returned")

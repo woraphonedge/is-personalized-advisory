@@ -21,6 +21,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
+from app.utils.client_service import list_clients as list_clients_service
 from app.utils.health_service import get_health_metrics_for_customer
 from app.utils.portfolio_fetcher import get_portfolio_for_customer
 
@@ -40,6 +41,7 @@ from .data_store import (
 )
 from .models import (
     ActionLog,
+    ClientListResponse,
     HealthMetrics,
     HealthMetricsRequest,
     PortfolioResponse,
@@ -57,6 +59,51 @@ app = FastAPI(title="Investment Rebalancing API", lifespan=lifespan)
 def health_check():
     """Lightweight health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/api/v1/clients", response_model=ClientListResponse)
+def list_clients(
+    customer_id: int | None = None,
+    query: str | None = None,
+    sales_id: str | None = None,
+    request: Request = None
+):
+    """Search and list clients based on customer_id, client name, or sales_id.
+
+    Args:
+        customer_id: Partial customer ID to search for (optional)
+        query: Partial client name in Thai or English to search for (optional)
+        sales_id: Sales ID to filter clients for access control (optional)
+
+    Returns:
+        ClientListResponse with up to 10 matching clients
+    """
+    # Log request for debugging
+    if request:
+        try:
+            client_host = getattr(request.client, "host", "unknown") if request.client else "unknown"
+            logger.info(
+                "GET %s from %s | customer_id=%r query=%r sales_id=%r",
+                request.url.path,
+                client_host,
+                customer_id,
+                query,
+                sales_id,
+            )
+        except Exception:
+            pass
+
+    try:
+        return list_clients_service(
+            df_style=app.state.ports.df_style,
+            port_id_mapping=app.state.ports.port_id_mapping,
+            customer_id=customer_id,
+            query=query,
+            sales_id=sales_id,
+        )
+    except Exception as e:
+        logger.exception("Failed to list clients: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/v1/portfolio/{customer_id}", response_model=PortfolioResponse)
