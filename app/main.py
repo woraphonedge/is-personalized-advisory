@@ -66,6 +66,7 @@ def list_clients(
     customer_id: int | None = None,
     query: str | None = None,
     sales_id: str | None = None,
+    user_role: str | None = None,
     request: Request = None
 ):
     """Search and list clients based on customer_id, client name, or sales_id.
@@ -74,6 +75,7 @@ def list_clients(
         customer_id: Partial customer ID to search for (optional)
         query: Partial client name in Thai or English to search for (optional)
         sales_id: Sales ID to filter clients for access control (optional)
+        user_role: User role (system_admin, app_admin, user) - admins bypass sales_id filter
 
     Returns:
         ClientListResponse with up to 10 matching clients
@@ -83,12 +85,13 @@ def list_clients(
         try:
             client_host = getattr(request.client, "host", "unknown") if request.client else "unknown"
             logger.info(
-                "GET %s from %s | customer_id=%r query=%r sales_id=%r",
+                "GET %s from %s | customer_id=%r query=%r sales_id=%r user_role=%r",
                 request.url.path,
                 client_host,
                 customer_id,
                 query,
                 sales_id,
+                user_role,
             )
         except Exception:
             pass
@@ -100,6 +103,7 @@ def list_clients(
             customer_id=customer_id,
             query=query,
             sales_id=sales_id,
+            user_role=user_role,
         )
     except Exception as e:
         logger.exception("Failed to list clients: %s", e)

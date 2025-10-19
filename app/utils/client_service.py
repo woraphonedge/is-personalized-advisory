@@ -22,6 +22,7 @@ def list_clients(
     customer_id: int | None = None,
     query: str | None = None,
     sales_id: str | None = None,
+    user_role: str | None = None,
 ) -> ClientListResponse:
     """Search and list clients based on customer_id, client name (Thai), or sales_id.
 
@@ -31,6 +32,7 @@ def list_clients(
         customer_id: Partial customer ID to search for (optional)
         query: Partial client name in Thai to search for (optional)
         sales_id: Sales ID to filter clients (optional, for access control)
+        user_role: User role (system_admin, app_admin, user) - admins bypass sales_id filter
 
     Returns:
         ClientListResponse with up to 10 matching clients
@@ -53,13 +55,16 @@ def list_clients(
     # Filter based on search criteria
     mask = None
 
-    # Filter by sales_id first (access control)
-    if sales_id is not None and sales_id.strip():
+    # Filter by sales_id first (access control) - skip for admin roles
+    is_admin = user_role in ["system_admin", "app_admin"]
+    if not is_admin and sales_id is not None and sales_id.strip():
         if "sales_id" in df_merged.columns:
             mask = df_merged["sales_id"].astype(str) == sales_id
-            logger.debug("Filtering by sales_id=%s", sales_id)
+            logger.debug("Filtering by sales_id=%s (user_role=%s)", sales_id, user_role)
         else:
             logger.warning("sales_id column not found in df_style, skipping sales_id filter")
+    elif is_admin:
+        logger.debug("Admin user (role=%s) - bypassing sales_id filter", user_role)
 
     if customer_id is not None:
         # Partial customer_id match (convert to string for partial matching)
@@ -68,24 +73,34 @@ def list_clients(
         mask = customer_mask if mask is None else (mask & customer_mask)
 
     if query is not None and query.strip():
-        # Partial client name match (case-insensitive) - search in both Thai and English names
-        name_mask = None
+        # Search in customer_id, Thai name, and English name (OR condition for all three)
+        search_mask = None
+        
+        # Search in customer_id (convert to string for partial matching)
+        customer_id_mask = df_merged["customer_id"].astype(str).str.contains(query, na=False, case=False)
+        search_mask = customer_id_mask
+        
+        # Search in Thai name
         if "client_full_name_th" in df_merged.columns:
             name_mask = df_merged["client_full_name_th"].astype(str).str.contains(query, na=False, case=False)
+            search_mask = search_mask | name_mask
+        
+        # Search in English name
         if "client_first_name_en" in df_merged.columns:
             en_mask = df_merged["client_first_name_en"].astype(str).str.contains(query, na=False, case=False)
-            name_mask = en_mask if name_mask is None else (name_mask | en_mask)
+            search_mask = search_mask | en_mask
 
-        if name_mask is not None:
-            mask = name_mask if mask is None else (mask & name_mask)
-        else:
-            logger.debug("client name columns not found in df_style, skipping name search")
+        # Combine with existing mask (AND condition with sales_id filter)
+        mask = search_mask if mask is None else (mask & search_mask)
+        logger.debug("Applied query search for: %s", query)
 
     # Apply filter or return all if no criteria
     if mask is not None:
+        logger.debug("Mask length: %s", len(mask))
         df_filtered = df_merged[mask]
     else:
         df_filtered = df_merged
+        logger.debug("No filter criteria provided, returning all clients")
 
     # Remove duplicates by customer_id and take most recent as_of_date
     if "as_of_date" in df_filtered.columns:
