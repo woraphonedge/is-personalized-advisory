@@ -245,10 +245,15 @@ class HealthMetricsRequest(BaseModel):
 
 
 class ActionLog(BaseModel):
-    action: str
-    step: str
-    trade_type: Optional[str] = None
+    action: str  # buy, sell, funding
+    flag: Optional[str] = None  # new_money, not_monitored_product, cash_proxy_funding, etc.
+    flag_msg: Optional[str] = None  # Human-readable description
     symbol: Optional[str] = None
+    amount: Optional[float] = None  # Transaction amount in THB
+    asset_class_name: Optional[str] = None  # Asset class name
+    # Legacy fields for backward compatibility
+    step: Optional[str] = None
+    trade_type: Optional[str] = None
     amount_thb: Optional[float] = None
     unit: Optional[float] = None
     price: Optional[float] = None

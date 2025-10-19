@@ -381,15 +381,20 @@ def _compute_health_metrics(
         for _, r in actions_df.iterrows():
             action_logs.append(
                 ActionLog(
-                    action=safe_str(r.get("flag"), "rebalance"),
+                    action=safe_str(r.get("action"), "trade"),  # buy, sell, funding
+                    flag=safe_str(r.get("flag"), None),  # new_money, not_monitored_product, etc.
+                    flag_msg=safe_str(r.get("flag_msg"), None),  # Human-readable description
+                    symbol=safe_str(r.get("src_sharecodes"), "UNKNOWN"),
+                    amount=safe_float(r.get("amount")),  # Transaction amount
+                    asset_class_name=safe_str(r.get("asset_class_name"), None),  # Asset class
+                    # Legacy fields for backward compatibility
                     step="",
                     trade_type=safe_str(r.get("action"), "trade"),
-                    symbol=safe_str(r.get("src_sharecodes"), "UNKNOWN"),
                     amount_thb=safe_float(r.get("amount")),
                     unit=None,
                     price=None,
-                    asset_class="Unknown",
-                    notes=None,
+                    asset_class=safe_str(r.get("asset_class_name"), "Unknown"),
+                    notes=safe_str(r.get("flag_msg"), None),
                 )
             )
 
