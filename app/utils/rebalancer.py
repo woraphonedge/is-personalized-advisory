@@ -618,7 +618,7 @@ class Rebalancer:
 
         # --------- Phase 2: Ranked product loop (mandates excluded) ----------
         if cash_buckets is None or cash_buckets.empty:
-            return pd.concat(buys, ignore_index=True) if buys else pd.DataFrame(columns=self.recommendations.columns)
+            return pd.concat(buys, ignore_index=True) if buys else pd.DataFrame(columns=self.reco_cols)
 
         for _ in range(self.max_rebalance_loops):
             diffs = self.get_port_model_allocation_diff(ports, ppm)
@@ -733,14 +733,8 @@ class Rebalancer:
                 break
 
         recommendations = pd.concat(buys, ignore_index=True) if buys else pd.DataFrame(columns=self.reco_cols)
-        recommendations = recommendations.merge(
-            self.new_ports.product_mapping,
-            on=self.new_ports.prod_comp_keys,
-            how="left",
-            suffixes=("_reco", "")
-        )
 
-        return recommendations[self.reco_cols]
+        return recommendations
 
     # ---------------------------
     # Cash overweight -> Cash Proxy (same currency) — 1-to-1 pairing
@@ -1086,8 +1080,18 @@ class Rebalancer:
 
             logger.debug("[rebalance] final recommendations rows=%s", len(self.recommendations))
 
+            # Merge product mapping for final output
+            self.recommendations = self.recommendations.merge(
+                self.new_ports.product_mapping,
+                on=self.new_ports.prod_comp_keys,
+                how="left",
+                suffixes=("_reco", "")
+            )
+            self.recommendations = self.recommendations[self.reco_cols]
+
             health_score_after = self.new_ports.get_portfolio_health_score(ppm, hs)[0]["health_score"].values[0]
 
+            # Do not rebalance if health score decreased
             if health_score_after < health_score_before:
                 logger.warning(
                     "[rebalance] health score decreased after rebalance: before=%.2f after=%.2f",
