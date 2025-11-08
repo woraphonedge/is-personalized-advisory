@@ -19,8 +19,9 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 
+from app.utils.auth import get_current_user
 from app.utils.client_service import (
     get_accessible_customer_ids,
 )
@@ -39,6 +40,13 @@ logging.basicConfig(
     level=level,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
+
+# Suppress DEBUG logs from external libraries
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("supabase").setLevel(logging.WARNING)
+logging.getLogger("httpcore.http2").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 from .data_store import (
@@ -67,43 +75,43 @@ def health_check():
 
 
 @app.get("/api/v1/clients", response_model=ClientListResponse)
-def list_clients(
+async def list_clients(
+    request: Request,
     customer_id: int | None = None,
     query: str | None = None,
-    sales_id: str | None = None,
-    user_role: str | None = None,
-    request: Request = None,
+    auth: tuple[str, str, str] = Depends(get_current_user),
 ):
-    """Search and list clients based on customer_id, client name, or sales_id.
+    """Search and list clients based on customer_id, client name.
+
+    Authentication via JWT token in Authorization header.
 
     Args:
         customer_id: Partial customer ID to search for (optional)
         query: Partial client name in Thai or English to search for (optional)
-        sales_id: Sales ID to filter clients for access control (optional)
-        user_role: User role (system_admin, app_admin, user) - admins bypass sales_id filter
+        auth: Authenticated user info (user_id, sales_id, user_role) from JWT
 
     Returns:
         ClientListResponse with up to 10 matching clients
     """
+    user_id, sales_id, user_role = auth
+
     # Log request for debugging
-    if request:
-        try:
-            client_host = (
-                getattr(request.client, "host", "unknown")
-                if request.client
-                else "unknown"
-            )
-            logger.info(
-                "GET %s from %s | customer_id=%r query=%r sales_id=%r user_role=%r",
-                request.url.path,
-                client_host,
-                customer_id,
-                query,
-                sales_id,
-                user_role,
-            )
-        except Exception:
-            pass
+    try:
+        client_host = (
+            getattr(request.client, "host", "unknown") if request.client else "unknown"
+        )
+        logger.info(
+            "GET %s from %s | user_id=%s sales_id=%s role=%s customer_id=%r query=%r",
+            request.url.path,
+            client_host,
+            user_id,
+            sales_id,
+            user_role,
+            customer_id,
+            query,
+        )
+    except Exception:
+        pass
 
     try:
         return list_clients_service(
@@ -120,13 +128,14 @@ def list_clients(
 
 
 @app.get("/api/v1/portfolio/{customer_id}", response_model=PortfolioResponse)
-def get_portfolio(
+async def get_portfolio(
     customer_id: int,
     request: Request,
-    sales_id: str | None = None,
-    user_role: str | None = None,
+    auth: tuple[str, str, str] = Depends(get_current_user),
 ):
     """Return the current portfolio for the specified customer.
+
+    Authentication via JWT token in Authorization header.
 
     This pulls client positions as of the configured date using
     `app.state.ports_repo.load_client_out_product_enriched` and maps them
@@ -136,6 +145,8 @@ def get_portfolio(
     - portfolio: Portfolio with positions
     - clientStyle: Client investment style from df_style
     """
+    user_id, sales_id, user_role = auth
+
     # Trace request context for debugging
     try:
         client_host = (
@@ -144,12 +155,13 @@ def get_portfolio(
             else "unknown"
         )
         logger.info(
-            "GET %s from %s | raw customer_id=%r sales_id=%r user_role=%r",
+            "GET %s from %s | user_id=%s sales_id=%s role=%s customer_id=%r",
             request.url.path if request else "/api/v1/portfolio",
             client_host,
-            customer_id,
+            user_id,
             sales_id,
             user_role,
+            customer_id,
         )
     except Exception:
         # Best-effort; do not block request on logging issues
