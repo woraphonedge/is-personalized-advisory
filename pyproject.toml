@@ -19,6 +19,7 @@ dependencies = [
     "databricks-sqlalchemy>=2.0.8",
     "jupyter>=1.1.1",
     "supabase>=2.24.0",
+    "pyjwt[crypto]>=2.8.0",
 ]
 
 [project.scripts]
