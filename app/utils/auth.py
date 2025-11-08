@@ -57,12 +57,13 @@ def verify_supabase_token(token: str) -> dict:
         # First, decode without verification to check the algorithm
         unverified_header = jwt.get_unverified_header(token)
         token_alg = unverified_header.get("alg")
+        logger.info(f"Token algorithm: {token_alg}")
 
         supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL").rstrip("/")
 
         # Try verification based on the token's algorithm
-        if token_alg == "RS256":
-            # Try JWKS first (even though it might be empty)
+        if token_alg in ["RS256", "ES256"]:
+            # Use JWKS for asymmetric algorithms (RS256, ES256)
             try:
                 jwks_client = get_jwks_client()
                 signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -70,7 +71,7 @@ def verify_supabase_token(token: str) -> dict:
                 decoded = jwt.decode(
                     token,
                     signing_key.key,
-                    algorithms=["RS256"],
+                    algorithms=[token_alg],
                     audience="authenticated",
                     issuer=f"{supabase_url}/auth/v1",
                     options={
@@ -80,15 +81,11 @@ def verify_supabase_token(token: str) -> dict:
                         "verify_exp": True,
                     },
                 )
-            except Exception:
-                # Fallback: try to decode without signature verification for development
-                decoded = jwt.decode(
-                    token,
-                    options={"verify_signature": False},
-                    algorithms=["RS256"],
-                    audience="authenticated",
-                    issuer=f"{supabase_url}/auth/v1",
-                )
+            except Exception as e:
+                logger.error(f"{token_alg} verification failed: {e}")
+                raise HTTPException(
+                    status_code=401, detail="Token verification failed"
+                ) from e
 
         elif token_alg == "HS256":
             # Use JWT secret for HS256 tokens
@@ -116,14 +113,9 @@ def verify_supabase_token(token: str) -> dict:
             )
 
         else:
-            # Unknown algorithm, try without verification for development
-            decoded = jwt.decode(
-                token,
-                options={"verify_signature": False},
-                algorithms=[token_alg],
-                audience="authenticated",
-                issuer=f"{supabase_url}/auth/v1",
-            )
+            # Unknown algorithm - reject token
+            logger.error(f"Unsupported JWT algorithm: {token_alg}")
+            raise HTTPException(status_code=401, detail="Unsupported token algorithm")
 
         return decoded
 
