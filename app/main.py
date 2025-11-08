@@ -21,7 +21,12 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
-from app.utils.client_service import list_clients as list_clients_service
+from app.utils.client_service import (
+    get_accessible_customer_ids,
+)
+from app.utils.client_service import (
+    list_clients as list_clients_service,
+)
 from app.utils.health_service import get_health_metrics_for_customer
 from app.utils.portfolio_fetcher import get_portfolio_for_customer
 
@@ -67,7 +72,7 @@ def list_clients(
     query: str | None = None,
     sales_id: str | None = None,
     user_role: str | None = None,
-    request: Request = None
+    request: Request = None,
 ):
     """Search and list clients based on customer_id, client name, or sales_id.
 
@@ -83,7 +88,11 @@ def list_clients(
     # Log request for debugging
     if request:
         try:
-            client_host = getattr(request.client, "host", "unknown") if request.client else "unknown"
+            client_host = (
+                getattr(request.client, "host", "unknown")
+                if request.client
+                else "unknown"
+            )
             logger.info(
                 "GET %s from %s | customer_id=%r query=%r sales_id=%r user_role=%r",
                 request.url.path,
@@ -111,7 +120,12 @@ def list_clients(
 
 
 @app.get("/api/v1/portfolio/{customer_id}", response_model=PortfolioResponse)
-def get_portfolio(customer_id: int, request: Request):
+def get_portfolio(
+    customer_id: int,
+    request: Request,
+    sales_id: str | None = None,
+    user_role: str | None = None,
+):
     """Return the current portfolio for the specified customer.
 
     This pulls client positions as of the configured date using
@@ -130,10 +144,12 @@ def get_portfolio(customer_id: int, request: Request):
             else "unknown"
         )
         logger.info(
-            "GET %s from %s | raw customer_id=%r",
+            "GET %s from %s | raw customer_id=%r sales_id=%r user_role=%r",
             request.url.path if request else "/api/v1/portfolio",
             client_host,
             customer_id,
+            sales_id,
+            user_role,
         )
     except Exception:
         # Best-effort; do not block request on logging issues
@@ -151,9 +167,61 @@ def get_portfolio(customer_id: int, request: Request):
             status_code=400, detail="customer_id must be numeric"
         ) from e
 
+    # Access control validation - check if user can access this customer's portfolio
+    is_admin = user_role in ["system_admin", "app_admin"]
+    if not is_admin:
+        if not sales_id or not sales_id.strip():
+            logger.warning(
+                "Access denied: No sales_id provided for non-admin user accessing customer_id=%s",
+                cust_id_int,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: sales_id required for non-admin users",
+            )
+
+        # Check if user has access to this customer via Supabase
+        accessible_customer_ids = get_accessible_customer_ids(sales_id)
+
+        if not accessible_customer_ids:
+            logger.warning(
+                "Supabase access check failed for sales_id=%s, falling back to direct validation",
+                sales_id,
+            )
+            # Fallback: could add direct validation here if needed
+            # For now, we'll deny access if Supabase fails
+            raise HTTPException(
+                status_code=403, detail="Access denied: Unable to verify access rights"
+            )
+
+        if cust_id_int not in accessible_customer_ids:
+            logger.warning(
+                "Access denied: sales_id=%s does not have access to customer_id=%s",
+                sales_id,
+                cust_id_int,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: You do not have permission to access this customer's portfolio",
+            )
+
+        logger.debug(
+            "Access granted: sales_id=%s has access to customer_id=%s",
+            sales_id,
+            cust_id_int,
+        )
+    else:
+        logger.debug(
+            "Admin access granted for user_role=%s accessing customer_id=%s",
+            user_role,
+            cust_id_int,
+        )
+
     try:
         # Delegate to utility to build Portfolio model and extract client style
-        portfolio_model, client_style = get_portfolio_for_customer(app.state.ports, cust_id_int)
+        portfolio_model, client_style = get_portfolio_for_customer(
+            app.state.ports, cust_id_int
+        )
         return PortfolioResponse(portfolio=portfolio_model, clientStyle=client_style)
     except HTTPException:
         # re-raise expected errors
@@ -208,6 +276,7 @@ def rebalance(request: RebalanceRequest) -> RebalanceResponse:
 
     try:
         from app.utils.rebalance_handler import perform_rebalance
+
         return perform_rebalance(app.state, request)
     except HTTPException:
         # Let already-classified errors pass through
@@ -261,7 +330,9 @@ def get_health_score_real(request: HealthMetricsRequest) -> HealthMetrics:
     try:
         cust_id = int(request.customer_id)
     except Exception as e:
-        raise HTTPException(status_code=400, detail="customer_id must be numeric") from e
+        raise HTTPException(
+            status_code=400, detail="customer_id must be numeric"
+        ) from e
 
     # Override client_style if provided (temporary modification for this API call only)
     try:
