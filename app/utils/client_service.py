@@ -7,13 +7,60 @@ Provides functionality to search and list clients based on customer_id or client
 from __future__ import annotations
 
 import logging
+import os
 from typing import List
 
 import pandas as pd
+from supabase import Client, create_client
 
 from app.models import ClientListItem, ClientListResponse
 
 logger = logging.getLogger(__name__)
+
+
+def get_accessible_customer_ids(sales_id: str) -> set[int]:
+    """Get all customer IDs that a sales_id can access from user_portfolio_access table.
+
+    This includes direct customers and team customers for team leads/managers.
+
+    Args:
+        sales_id: The sales ID to get accessible customers for
+
+    Returns:
+        Set of customer IDs that the sales_id can access
+    """
+    try:
+        # Initialize Supabase client
+        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            logger.warning(
+                "Supabase credentials not found, falling back to direct sales_id filtering"
+            )
+            return set()
+
+        supabase: Client = create_client(supabase_url, supabase_key)
+
+        # Query user_portfolio_access table for all customer_ids this sales_id can access
+        result = (
+            supabase.table("user_portfolio_access")
+            .select("customer_id")
+            .eq("sales_id", int(sales_id))
+            .execute()
+        )
+
+        customer_ids = {record["customer_id"] for record in result.data}
+        logger.debug(
+            f"Found {len(customer_ids)} accessible customers for sales_id={sales_id}"
+        )
+
+        return customer_ids
+
+    except Exception as e:
+        logger.error(f"Error fetching accessible customer_ids from Supabase: {e}")
+        # Return empty set to fallback to direct filtering
+        return set()
 
 
 def list_clients(
@@ -52,61 +99,108 @@ def list_clients(
     # Merge df_style with port_id_mapping to get customer_id
     df_merged = df_style.merge(port_id_mapping, on="port_id", how="left")
 
-    # Filter based on search criteria
+    # Filter based on search criteria (but skip sales_id for now - will handle later with Supabase)
     mask = None
 
-    # Filter by sales_id first (access control) - skip for admin roles
-    is_admin = user_role in ["system_admin", "app_admin"]
-    if not is_admin and sales_id is not None and sales_id.strip():
-        if "sales_id" in df_merged.columns:
-            mask = df_merged["sales_id"].astype(str) == sales_id
-            logger.debug("Filtering by sales_id=%s (user_role=%s)", sales_id, user_role)
-        else:
-            logger.warning("sales_id column not found in df_style, skipping sales_id filter")
-    elif is_admin:
-        logger.debug("Admin user (role=%s) - bypassing sales_id filter", user_role)
-
+    # Apply customer_id filter
     if customer_id is not None:
         # Partial customer_id match (convert to string for partial matching)
         customer_id_str = str(customer_id)
-        customer_mask = df_merged["customer_id"].astype(str).str.contains(customer_id_str, na=False)
+        customer_mask = (
+            df_merged["customer_id"].astype(str).str.contains(customer_id_str, na=False)
+        )
         mask = customer_mask if mask is None else (mask & customer_mask)
 
+    # Apply query filter (customer_id, Thai name, and English name)
     if query is not None and query.strip():
         # Search in customer_id, Thai name, and English name (OR condition for all three)
         search_mask = None
-        
+
         # Search in customer_id (convert to string for partial matching)
-        customer_id_mask = df_merged["customer_id"].astype(str).str.contains(query, na=False, case=False)
+        customer_id_mask = (
+            df_merged["customer_id"]
+            .astype(str)
+            .str.contains(query, na=False, case=False)
+        )
         search_mask = customer_id_mask
-        
+
         # Search in Thai name
         if "client_full_name_th" in df_merged.columns:
-            name_mask = df_merged["client_full_name_th"].astype(str).str.contains(query, na=False, case=False)
+            name_mask = (
+                df_merged["client_full_name_th"]
+                .astype(str)
+                .str.contains(query, na=False, case=False)
+            )
             search_mask = search_mask | name_mask
-        
+
         # Search in English name
         if "client_first_name_en" in df_merged.columns:
-            en_mask = df_merged["client_first_name_en"].astype(str).str.contains(query, na=False, case=False)
+            en_mask = (
+                df_merged["client_first_name_en"]
+                .astype(str)
+                .str.contains(query, na=False, case=False)
+            )
             search_mask = search_mask | en_mask
 
-        # Combine with existing mask (AND condition with sales_id filter)
+        # Combine with existing mask (AND condition with other filters)
         mask = search_mask if mask is None else (mask & search_mask)
         logger.debug("Applied query search for: %s", query)
 
-    # Apply filter or return all if no criteria
+    # Apply search filters (customer_id and query) but skip sales_id for now
     if mask is not None:
-        logger.debug("Mask length: %s", len(mask))
-        df_filtered = df_merged[mask]
+        logger.debug("Search mask length: %s", len(mask))
+        df_search_filtered = df_merged[mask]
     else:
-        df_filtered = df_merged
-        logger.debug("No filter criteria provided, returning all clients")
+        df_search_filtered = df_merged
+        logger.debug("No search criteria provided, using all clients")
+
+    # Now apply access control using Supabase user_portfolio_access table
+    is_admin = user_role in ["system_admin", "app_admin"]
+    if is_admin:
+        logger.debug("Admin user (role=%s) - bypassing access control", user_role)
+        df_final_filtered = df_search_filtered
+    elif sales_id is not None and sales_id.strip():
+        # Get accessible customer IDs from Supabase
+        accessible_customer_ids = get_accessible_customer_ids(sales_id)
+
+        if accessible_customer_ids:
+            # Filter search results to only include accessible customers
+            df_final_filtered = df_search_filtered[
+                df_search_filtered["customer_id"].isin(accessible_customer_ids)
+            ]
+            logger.debug(
+                "Filtered %d search results to %d accessible customers for sales_id=%s",
+                len(df_search_filtered),
+                len(df_final_filtered),
+                sales_id,
+            )
+        else:
+            # Fallback to direct sales_id filtering if Supabase query failed
+            logger.warning(
+                "Supabase query failed, falling back to direct sales_id filtering for sales_id=%s",
+                sales_id,
+            )
+            if "sales_id" in df_search_filtered.columns:
+                df_final_filtered = df_search_filtered[
+                    df_search_filtered["sales_id"].astype(str) == sales_id
+                ]
+            else:
+                logger.warning("sales_id column not found in df_search_filtered")
+                df_final_filtered = df_search_filtered.head(
+                    0
+                )  # Return empty if no sales_id column
+    else:
+        # No sales_id provided and not admin - return empty for security
+        logger.warning(
+            "No sales_id provided for non-admin user, returning empty results"
+        )
+        df_final_filtered = df_search_filtered.head(0)
 
     # Remove duplicates by customer_id and take most recent as_of_date
-    if "as_of_date" in df_filtered.columns:
-        df_filtered = df_filtered.sort_values("as_of_date", ascending=False)
+    if "as_of_date" in df_final_filtered.columns:
+        df_final_filtered = df_final_filtered.sort_values("as_of_date", ascending=False)
 
-    df_unique = df_filtered.drop_duplicates(subset=["customer_id"], keep="first")
+    df_unique = df_final_filtered.drop_duplicates(subset=["customer_id"], keep="first")
 
     # Limit to 10 results
     df_result = df_unique.head(10)
