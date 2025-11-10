@@ -15,6 +15,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
+import pandas as pd
+
 from app.models import Position
 from app.utils.data_loader import DataLoader
 from app.utils.health_score import HealthScore
@@ -31,6 +33,7 @@ df_out_loaded = None
 df_style_loaded = None
 port_ids_loaded = None
 port_id_mapping_loaded = None
+sales_customer_mapping_loaded = None
 
 discretionary_acceptance = 0.4
 as_of_date = os.getenv("AS_OF_DATE", "2025-09-30")
@@ -195,16 +198,70 @@ def prepare_portfolio_data() -> None:
     )
 
     # Create portfolio ids by ['as_of_date','customer_id'] and set portfolio
-    df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded = ports.create_portfolio_id(
-        df_out_raw.copy(), df_style_raw.copy(), column_mapping=["as_of_date", "customer_id"]
+    df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded = (
+        ports.create_portfolio_id(
+            df_out_raw.copy(),
+            df_style_raw.copy(),
+            column_mapping=["as_of_date", "customer_id"],
+        )
     )
-    ports.set_portfolio(df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded)
+    ports.set_portfolio(
+        df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded
+    )
+
+
+def load_sales_customer_mapping() -> None:
+    """Load sales-customer mapping from CSV file for access control.
+
+    Reads sales_customer_mapping.csv and stores it in memory for fast access.
+    The CSV should contain SALES_ID and CUSTOMER_ID columns.
+    """
+    global sales_customer_mapping_loaded
+
+    csv_path = os.path.join(
+        os.path.dirname(__file__), "data", "sales_customer_mapping.csv"
+    )
+
+    try:
+        if os.path.exists(csv_path):
+            sales_customer_mapping_loaded = pd.read_csv(csv_path)
+            print(
+                f"[startup] Loaded sales-customer mapping: {len(sales_customer_mapping_loaded)} mappings"
+            )
+        else:
+            print(
+                f"[startup] Warning: sales_customer_mapping.csv not found at {csv_path}"
+            )
+            sales_customer_mapping_loaded = pd.DataFrame(
+                columns=["SALES_ID", "CUSTOMER_ID"]
+            )
+    except Exception as e:
+        print(f"[startup] Error loading sales_customer_mapping.csv: {e}")
+        sales_customer_mapping_loaded = pd.DataFrame(
+            columns=["SALES_ID", "CUSTOMER_ID"]
+        )
+
+
+def get_sales_customer_mapping() -> pd.DataFrame:
+    """Get the sales-customer mapping DataFrame.
+
+    Returns:
+        DataFrame containing SALES_ID and CUSTOMER_ID mappings.
+        Returns empty DataFrame if not loaded.
+    """
+    if sales_customer_mapping_loaded is None:
+        raise RuntimeError(
+            "Sales customer mapping not initialized - call load_sales_customer_mapping() first"
+        )
+    return sales_customer_mapping_loaded
 
 
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan context that initializes in-memory data."""
     load_data()
+    # Load sales-customer mapping for access control
+    load_sales_customer_mapping()
     # Best-effort to prepare portfolio data; keep app starting even if DB not reachable
     try:
         # Expose shared singletons and preloaded data via app.state
@@ -219,6 +276,7 @@ async def lifespan(app):
         try:
             from app.models import Portfolio as _Portfolio
             from app.models import Position as _Position
+
             app.state.Portfolio = _Portfolio
             app.state.Position = _Position
         except Exception:
@@ -227,6 +285,8 @@ async def lifespan(app):
         app.state.AS_OF_DATE = as_of_date
         # Candidate purchase universe
         app.state.candidate_data = get_candidate_data()
+        # Expose sales-customer mapping for access control
+        app.state.sales_customer_mapping = get_sales_customer_mapping()
         # Optionally prepare portfolio data if backend sources are reachable
         prepare_portfolio_data()
     except Exception as e:
