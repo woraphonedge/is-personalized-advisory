@@ -121,6 +121,7 @@ async def list_clients(
             query=query,
             sales_id=sales_id,
             user_role=user_role,
+            sales_customer_mapping_df=app.state.sales_customer_mapping,
         )
     except Exception as e:
         logger.exception("Failed to list clients: %s", e)
@@ -192,16 +193,18 @@ async def get_portfolio(
                 detail="Access denied: sales_id required for non-admin users",
             )
 
-        # Check if user has access to this customer via Supabase
-        accessible_customer_ids = get_accessible_customer_ids(sales_id)
+        # Check if user has access to this customer via in-memory sales-customer mapping
+        accessible_customer_ids = get_accessible_customer_ids(
+            sales_id, app.state.sales_customer_mapping
+        )
 
         if not accessible_customer_ids:
             logger.warning(
-                "Supabase access check failed for sales_id=%s, falling back to direct validation",
+                "Sales-customer mapping access check failed for sales_id=%s, no accessible customers found",
                 sales_id,
             )
             # Fallback: could add direct validation here if needed
-            # For now, we'll deny access if Supabase fails
+            # For now, we'll deny access if mapping lookup fails
             raise HTTPException(
                 status_code=403, detail="Access denied: Unable to verify access rights"
             )

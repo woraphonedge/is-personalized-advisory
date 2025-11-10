@@ -7,50 +7,64 @@ Provides functionality to search and list clients based on customer_id or client
 from __future__ import annotations
 
 import logging
-import os
 from typing import List
 
 import pandas as pd
-from supabase import Client, create_client
 
 from app.models import ClientListItem, ClientListResponse
 
 logger = logging.getLogger(__name__)
 
 
-def get_accessible_customer_ids(sales_id: str) -> set[int]:
-    """Get all customer IDs that a sales_id can access from user_portfolio_access table.
+def get_accessible_customer_ids(
+    sales_id: str, sales_customer_mapping_df: pd.DataFrame | None = None
+) -> set[int]:
+    """Get all customer IDs that a sales_id can access from in-memory sales-customer mapping.
 
     This includes direct customers and team customers for team leads/managers.
 
     Args:
         sales_id: The sales ID to get accessible customers for
+        sales_customer_mapping_df: Optional DataFrame containing sales-customer mappings.
+                                 If not provided, will attempt to use app.state from FastAPI.
 
     Returns:
         Set of customer IDs that the sales_id can access
     """
     try:
-        # Initialize Supabase client
-        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        # Use provided DataFrame or try to get from app.state
+        if sales_customer_mapping_df is None:
+            try:
+                # Import here to avoid circular imports
+                from app.data_store import get_sales_customer_mapping
 
-        if not supabase_url or not supabase_key:
-            logger.warning(
-                "Supabase credentials not found, falling back to direct sales_id filtering"
-            )
+                sales_customer_mapping_df = get_sales_customer_mapping()
+            except (ImportError, RuntimeError) as e:
+                logger.warning(
+                    f"Could not get sales-customer mapping from data store: {e}. "
+                    "Falling back to empty access set."
+                )
+                return set()
+
+        # Filter DataFrame for the given sales_id
+        if sales_customer_mapping_df.empty:
+            logger.warning("Sales-customer mapping DataFrame is empty")
             return set()
 
-        supabase: Client = create_client(supabase_url, supabase_key)
+        # Convert sales_id to int for matching (CSV data is likely numeric)
+        try:
+            sales_id_int = int(sales_id)
+        except ValueError:
+            logger.warning(f"Invalid sales_id format: {sales_id}")
+            return set()
 
-        # Query user_portfolio_access table for all customer_ids this sales_id can access
-        result = (
-            supabase.table("user_portfolio_access")
-            .select("customer_id")
-            .eq("sales_id", int(sales_id))
-            .execute()
-        )
+        # Filter mappings for this sales_id
+        filtered_mappings = sales_customer_mapping_df[
+            sales_customer_mapping_df["SALES_ID"] == sales_id_int
+        ]
 
-        customer_ids = {record["customer_id"] for record in result.data}
+        # Extract customer IDs
+        customer_ids = set(filtered_mappings["CUSTOMER_ID"].tolist())
         logger.debug(
             f"Found {len(customer_ids)} accessible customers for sales_id={sales_id}"
         )
@@ -58,7 +72,7 @@ def get_accessible_customer_ids(sales_id: str) -> set[int]:
         return customer_ids
 
     except Exception as e:
-        logger.error(f"Error fetching accessible customer_ids from Supabase: {e}")
+        logger.error(f"Error fetching accessible customer_ids from in-memory data: {e}")
         # Return empty set to fallback to direct filtering
         return set()
 
@@ -70,6 +84,7 @@ def list_clients(
     query: str | None = None,
     sales_id: str | None = None,
     user_role: str | None = None,
+    sales_customer_mapping_df: pd.DataFrame | None = None,
 ) -> ClientListResponse:
     """Search and list clients based on customer_id, client name (Thai), or sales_id.
 
@@ -80,6 +95,7 @@ def list_clients(
         query: Partial client name in Thai to search for (optional)
         sales_id: Sales ID to filter clients (optional, for access control)
         user_role: User role (system_admin, app_admin, user) - admins bypass sales_id filter
+        sales_customer_mapping_df: DataFrame containing sales-customer mappings for access control
 
     Returns:
         ClientListResponse with up to 10 matching clients
@@ -154,14 +170,16 @@ def list_clients(
         df_search_filtered = df_merged
         logger.debug("No search criteria provided, using all clients")
 
-    # Now apply access control using Supabase user_portfolio_access table
+    # Now apply access control using in-memory sales-customer mapping
     is_admin = user_role in ["system_admin", "app_admin"]
     if is_admin:
         logger.debug("Admin user (role=%s) - bypassing access control", user_role)
         df_final_filtered = df_search_filtered
     elif sales_id is not None and sales_id.strip():
-        # Get accessible customer IDs from Supabase
-        accessible_customer_ids = get_accessible_customer_ids(sales_id)
+        # Get accessible customer IDs from in-memory sales-customer mapping
+        accessible_customer_ids = get_accessible_customer_ids(
+            sales_id, sales_customer_mapping_df
+        )
 
         if accessible_customer_ids:
             # Filter search results to only include accessible customers
@@ -175,20 +193,12 @@ def list_clients(
                 sales_id,
             )
         else:
-            # Fallback to direct sales_id filtering if Supabase query failed
+            # No accessible customers found for this sales_id
             logger.warning(
-                "Supabase query failed, falling back to direct sales_id filtering for sales_id=%s",
+                "No accessible customers found for sales_id=%s",
                 sales_id,
             )
-            if "sales_id" in df_search_filtered.columns:
-                df_final_filtered = df_search_filtered[
-                    df_search_filtered["sales_id"].astype(str) == sales_id
-                ]
-            else:
-                logger.warning("sales_id column not found in df_search_filtered")
-                df_final_filtered = df_search_filtered.head(
-                    0
-                )  # Return empty if no sales_id column
+            df_final_filtered = df_search_filtered.head(0)  # Return empty results
     else:
         # No sales_id provided and not admin - return empty for security
         logger.warning(
