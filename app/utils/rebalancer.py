@@ -57,8 +57,8 @@ class Rebalancer:
         self.private_percent = private_percent
         self.cash_percent = cash_percent
         self.offshore_percent = offshore_percent
-        self.product_whitelist = product_whitelist or []
-        self.product_blacklist = product_blacklist or []
+        self.product_whitelist = [p.lower() for p in product_whitelist] or []
+        self.product_blacklist = [p.lower() for p in product_blacklist] or []
         self.discretionary_acceptance = 0.5 if discretionary_acceptance is None else float(discretionary_acceptance)
 
         self.eps = float(eps)
@@ -441,7 +441,7 @@ class Rebalancer:
             ptype = to_sell["product_type_desc"].iloc[0]
             ptype_restricted = (not pd.isna(ptype)) and (ptype in ["Private Market", "Hedge Fund", "Structured Note"])
             src_code = to_sell["src_sharecodes"].iloc[0]
-            src_whitelisted = (not pd.isna(src_code)) and (src_code in self.product_whitelist if self.product_whitelist else False)
+            src_whitelisted = (not pd.isna(src_code)) and (src_code.lower() in self.product_whitelist if self.product_whitelist else False)
 
             if ptype_restricted or is_tax_saving or src_whitelisted:
                 continue
@@ -515,7 +515,7 @@ class Rebalancer:
         prod_reco_rank = self.get_product_recommendation_rank(ports)
         # Exclude blacklisted products from recommendations
         if self.product_blacklist:
-            prod_reco_rank = prod_reco_rank[~prod_reco_rank["src_sharecodes"].isin(self.product_blacklist)]
+            prod_reco_rank = prod_reco_rank[~prod_reco_rank["src_sharecodes"].str.lower().isin(self.product_blacklist)]
 
         asset_map = {
             "aa_cash_diff": "Cash and Cash Equivalent",

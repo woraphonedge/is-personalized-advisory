@@ -94,12 +94,12 @@ class PortfoliosRepository:
         dim_column_select = [
             "A.AS_OF_DATE",
             "A.CUSTOMER_ID",
-            "CONCAT(SUBSTR(B.CLIENT_FULL_NAME_TH, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FULL_NAME_TH) - 1)) as CLIENT_FULL_NAME_TH",
-            "CONCAT(SUBSTR(B.CLIENT_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FIRST_NAME_EN) - 1)) as CLIENT_FIRST_NAME_EN",
-            "CONCAT(SUBSTR(B.CLIENT_LAST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_LAST_NAME_EN) - 1)) as CLIENT_LAST_NAME_EN",
-            # "B.CLIENT_FULL_NAME_TH",
-            # "B.CLIENT_FIRST_NAME_EN",
-            # "B.CLIENT_LAST_NAME_EN",
+            # "CONCAT(SUBSTR(B.CLIENT_FULL_NAME_TH, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FULL_NAME_TH) - 1)) as CLIENT_FULL_NAME_TH",
+            # "CONCAT(SUBSTR(B.CLIENT_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FIRST_NAME_EN) - 1)) as CLIENT_FIRST_NAME_EN",
+            # "CONCAT(SUBSTR(B.CLIENT_LAST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_LAST_NAME_EN) - 1)) as CLIENT_LAST_NAME_EN",
+            "B.CLIENT_FULL_NAME_TH",
+            "B.CLIENT_FIRST_NAME_EN",
+            "B.CLIENT_LAST_NAME_EN",
             f"A.{style_column} as port_investment_style",
             "B.CLIENT_TIER",
             "B.BUSINESS_UNIT",
@@ -107,10 +107,10 @@ class PortfoliosRepository:
             "B.CLIENT_SUB_SEGMENT_BY_INV_AUM",
             "B.SALES_ID",
             "B.UI_Client",
-            "CONCAT(SUBSTR(C.SALES_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(C.SALES_FIRST_NAME_EN) - 1)) as SALES_FIRST_NAME_EN",
-            "CONCAT(SUBSTR(C.SALES_TEAM, 1, 1), REPEAT('*', LENGTH(C.SALES_TEAM) - 1)) as SALES_TEAM",
-            # "C.SALES_FIRST_NAME_EN",
-            # "C.SALES_TEAM",
+            # "CONCAT(SUBSTR(C.SALES_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(C.SALES_FIRST_NAME_EN) - 1)) as SALES_FIRST_NAME_EN",
+            # "CONCAT(SUBSTR(C.SALES_TEAM, 1, 1), REPEAT('*', LENGTH(C.SALES_TEAM) - 1)) as SALES_TEAM",
+            "C.SALES_FIRST_NAME_EN",
+            "C.SALES_TEAM",
         ]
 
         where_query = (
