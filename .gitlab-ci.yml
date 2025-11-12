@@ -1,0 +1,197 @@
+# GitLab CI/CD Pipeline for is-personalized-advisory
+# TODO: Consult with SRE team for production configuration
+
+stages:
+  - validate
+  - security
+  - test
+  - build
+  - deploy
+
+variables:
+  PYTHON_VERSION: "3.12"
+  # TODO: Configure these variables with SRE team
+  # DOCKER_REGISTRY: "your-registry.gitlab.com"
+  # DOCKER_IMAGE: "$DOCKER_REGISTRY/$CI_PROJECT_PATH:$CI_COMMIT_SHA"
+  # KUBERNETES_NAMESPACE: "advisory-prod"
+
+# Cache dependencies for faster builds
+cache:
+  paths:
+    - .venv/
+    - uv.lock
+
+# Security scanning stage
+security:semgrep:
+  stage: security
+  image: returntocorp/semgrep:1.142.1
+  script:
+    - semgrep --config=auto --json --output=semgrep-report.json || true
+    - semgrep --config=auto
+  artifacts:
+    reports:
+      sast: semgrep-report.json
+    paths:
+      - semgrep-report.json
+    expire_in: 1 week
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+security:trivy:
+  stage: security
+  image: aquasec/trivy:latest
+  services:
+    - docker:24.0.5-dind
+  script:
+    - trivy image --format json --output trivy-report.json ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+    - trivy image ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+  artifacts:
+    reports:
+      container_scanning: trivy-report.json
+    paths:
+      - trivy-report.json
+    expire_in: 1 week
+  allow_failure: true
+  dependencies:
+    - build:docker
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Validation stage
+validate:code-quality:
+  stage: validate
+  image: python:${PYTHON_VERSION}-slim
+  before_script:
+    - apt-get update -y && apt-get install -y curl
+    - pip install uv
+    - uv sync
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+validate:dependencies:
+  stage: validate
+  image: python:${PYTHON_VERSION}-slim
+  script:
+    - pip install uv
+    - uv sync
+    - uv pip check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Test stage
+test:unit:
+  stage: test
+  image: python:${PYTHON_VERSION}-slim
+  before_script:
+    - pip install uv
+    - uv sync
+  script:
+    - uv run pytest tests/unit/ -v --cov=app --cov-report=xml --cov-report=html
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - htmlcov/
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:integration:
+  stage: test
+  image: python:${PYTHON_VERSION}-slim
+  services:
+    # TODO: Add required services (database, etc.)
+    - name: postgres:15
+      alias: postgres
+      variables:
+        POSTGRES_DB: test_db
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_pass
+  before_script:
+    - pip install uv
+    - uv sync
+  script:
+    - uv run pytest tests/integration/ -v
+  variables:
+    # TODO: Configure test environment variables
+    DATABASE_URL: "postgresql://test_user:test_pass@postgres:5432/test_db"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Build stage
+build:docker:
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  script:
+    - docker build -t ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA} .
+    - docker tag ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA} ${CI_REGISTRY_IMAGE}:latest
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}
+    - docker push ${CI_REGISTRY_IMAGE}:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Deploy stage (placeholder)
+deploy:staging:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    # TODO: Configure staging deployment with SRE team
+    - echo "Configure staging deployment"
+    - kubectl config use-context $KUBE_CONTEXT_STAGING
+    # - kubectl apply -f k8s/staging/
+  environment:
+    name: staging
+    url: https://staging-advisory.your-domain.com
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+deploy:production:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    # TODO: Configure production deployment with SRE team
+    - echo "Configure production deployment"
+    - kubectl config use-context $KUBE_CONTEXT_PROD
+    # - kubectl apply -f k8s/production/
+  environment:
+    name: production
+    url: https://advisory.your-domain.com
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  when: manual
+
+# Security policy scanning
+security:dependency-scan:
+  stage: security
+  image: python:${PYTHON_VERSION}-slim
+  script:
+    - pip install uv
+    - uv sync
+    - pip install safety
+    - safety check --json --output safety-report.json || true
+    - safety check
+  artifacts:
+    paths:
+      - safety-report.json
+    expire_in: 1 week
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
