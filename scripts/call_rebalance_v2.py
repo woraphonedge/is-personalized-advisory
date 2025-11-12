@@ -11,33 +11,29 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.request
 from datetime import date
 from typing import Any, Dict
 
+import requests
+
 
 def post_json(url: str, payload: Dict[str, Any]) -> tuple[int, Dict[str, Any] | str]:
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            status = resp.getcode()
-            body = resp.read().decode("utf-8")
-            try:
-                return status, json.loads(body)
-            except json.JSONDecodeError:
-                return status, body
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")
+        response = requests.post(
+            url, json=payload, headers={"Content-Type": "application/json"}, timeout=60
+        )
+        status = response.status_code
         try:
-            return e.code, json.loads(body)
+            return status, response.json()
         except json.JSONDecodeError:
-            return e.code, body
+            return status, response.text
+    except requests.exceptions.HTTPError as e:
+        try:
+            return e.response.status_code, e.response.json()
+        except (json.JSONDecodeError, AttributeError):
+            return e.response.status_code, e.response.text if e.response else str(e)
+    except requests.exceptions.RequestException as e:
+        return 500, str(e)
     except Exception as e:  # noqa: BLE001
         return 0, f"Request failed: {e}"
 
