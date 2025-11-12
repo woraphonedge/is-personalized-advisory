@@ -6,6 +6,7 @@ stages:
   - security
   - test
   - build
+  - security-scan
   - deploy
 
 variables:
@@ -40,7 +41,7 @@ security:semgrep:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 security:trivy:
-  stage: security
+  stage: security-scan
   image: aquasec/trivy:latest
   services:
     - docker:24.0.5-dind
@@ -54,8 +55,6 @@ security:trivy:
       - trivy-report.json
     expire_in: 1 week
   allow_failure: true
-  dependencies:
-    - build:docker
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
