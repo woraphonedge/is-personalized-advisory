@@ -80,6 +80,7 @@ def get_accessible_customer_ids(
 def list_clients(
     df_style: pd.DataFrame,
     port_id_mapping: pd.DataFrame,
+    acct_cust_mapping: pd.DataFrame,
     customer_id: int | None = None,
     query: str | None = None,
     sales_id: str | None = None,
@@ -91,6 +92,7 @@ def list_clients(
     Args:
         df_style: DataFrame containing client investment styles and metadata
         port_id_mapping: DataFrame mapping port_id to customer_id
+        acct_cust_mapping: DataFrame mapping account/sub-account to customer_id
         customer_id: Partial customer ID to search for (optional)
         query: Partial client name in Thai to search for (optional)
         sales_id: Sales ID to filter clients (optional, for access control)
@@ -158,6 +160,22 @@ def list_clients(
             )
             search_mask = search_mask | en_mask
 
+        # Search with account no
+        if "sub_account_no" in acct_cust_mapping.columns:
+            acct_cust_mask = (
+                acct_cust_mapping["sub_account_no"]
+                .astype(str)
+                .str.contains(query, na=False, case=False)
+            )
+            found_acct = acct_cust_mapping[acct_cust_mask]
+
+            acct_mask = (
+                df_merged["customer_id"].astype(str)
+                .isin(found_acct['customer_id'])
+            )
+
+            search_mask = search_mask | acct_mask
+
         # Combine with existing mask (AND condition with other filters)
         mask = search_mask if mask is None else (mask & search_mask)
         logger.debug("Applied query search for: %s", query)
@@ -176,7 +194,7 @@ def list_clients(
         logger.debug("Admin user (role=%s) - bypassing access control", user_role)
         df_final_filtered = df_search_filtered
     elif sales_id is not None and sales_id.strip():
-        # Get accessible customer IDs from in-memory sales-customer mapping
+        # Get accessibule cstomer IDs from in-memory sales-customer mapping
         accessible_customer_ids = get_accessible_customer_ids(
             sales_id, sales_customer_mapping_df
         )

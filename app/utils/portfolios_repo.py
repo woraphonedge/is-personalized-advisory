@@ -93,7 +93,7 @@ class PortfoliosRepository:
         # Columns to select
         dim_column_select = [
             "A.AS_OF_DATE",
-            "A.CUSTOMER_ID",
+            "A.customer_id",
             # "CONCAT(SUBSTR(B.CLIENT_FULL_NAME_TH, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FULL_NAME_TH) - 1)) as CLIENT_FULL_NAME_TH",
             # "CONCAT(SUBSTR(B.CLIENT_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FIRST_NAME_EN) - 1)) as CLIENT_FIRST_NAME_EN",
             # "CONCAT(SUBSTR(B.CLIENT_LAST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_LAST_NAME_EN) - 1)) as CLIENT_LAST_NAME_EN",
@@ -121,7 +121,7 @@ class PortfoliosRepository:
             SELECT {', '.join(dim_column_select)}
             FROM user.kwm.client_investment_style_as_of A
             LEFT JOIN edp.kkps_vw.v_pii_client_info B
-                ON A.CUSTOMER_ID = B.CUSTOMER_ID
+                ON A.customer_id = B.customer_id
                 AND B.DATA_DT = (SELECT max(DATA_DT) FROM edp.kkps_vw.v_pii_client_info)
             LEFT JOIN edp.kkps_vw.v_pii_sales_info C
                 ON B.SALES_ID = C.SALES_ID
@@ -254,6 +254,32 @@ class PortfoliosRepository:
         )
 
         return product_underlying
+
+    def load_acct_customer_mapping(self) -> pd.DataFrame:
+
+        dim_column_select = ["customer_id", "sub_account_no"]
+
+        # prep query
+        query = f"""
+            SELECT DISTINCT {', '.join(dim_column_select)}
+            FROM edp.kkps_vw.v_pii_acct_subacct_mast
+            WHERE DATA_DT = (select max(DATA_DT) from edp.kkps_vw.v_pii_acct_subacct_mast)
+        """
+
+        # prep cache file
+        cache_file = "acct_customer_mapping.parquet"
+
+        # prep type dict
+        type_dict = {
+            "customer_id": "string",
+            "sub_account_no": "string",
+        }
+        acct_customer_mapping = self.data_loader.load_data(
+            type_dict, query=query, cache_file=cache_file
+        )
+
+        return acct_customer_mapping
+
 
 
 if __name__ == "__main__":
