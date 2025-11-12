@@ -1,0 +1,65 @@
+# Exclude virtual environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Exclude build artifacts
+build/
+dist/
+*.egg-info/
+
+# Exclude environment files
+.env
+.env.local
+.env.production
+
+# Exclude IDE files
+.vscode/
+.windsurf/
+.idea/
+
+# Exclude OS files
+.DS_Store
+Thumbs.db
+
+# Exclude test files (optional - remove if you want to scan tests)
+tests/
+test_*.py
+*_test.py
+
+# Exclude notebooks and data files
+*.ipynb
+*.parquet
+*.json
+*.csv
+
+# Exclude documentation files
+*.md
+docs/
+
+# Exclude cache and temporary files
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Exclude Docker files (will be scanned separately with Trivy)
+Dockerfile*
+docker-compose*.yml
+
+# Exclude lock files
+uv.lock
+poetry.lock
+Pipfile.lock
+
+# Exclude git files
+.git/
+.gitignore
+
+# Exclude logs
+*.log
+logs/

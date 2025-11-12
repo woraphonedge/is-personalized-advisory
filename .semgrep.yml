@@ -1,0 +1,20 @@
+rules:
+  - id: python-security-best-practices
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+          - pattern: subprocess.call(..., shell=True)
+          - pattern: os.system(...)
+    message: Potentially dangerous function detected
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      technology:
+        - python
+
+exclude:
+  - "**/*.md"
+  - "**/test_*.py"
+  - "**/tests/**"
