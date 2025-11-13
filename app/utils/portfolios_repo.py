@@ -1,7 +1,7 @@
 import pandas as pd
 
 from .data_loader import DataLoader
-from .utils import get_latest_eom, databricks_half_mask_column
+from .utils import databricks_half_mask_column, get_latest_eom
 
 
 class PortfoliosRepository:
@@ -113,9 +113,7 @@ class PortfoliosRepository:
             # "C.SALES_TEAM",
         ]
 
-        where_query = (
-            f"WHERE A.AS_OF_DATE = '{as_of_date}' {and_query}"
-        )
+        where_query = f"WHERE A.AS_OF_DATE = '{as_of_date}' {and_query}"
 
         query = f"""
             SELECT {', '.join(dim_column_select)}
@@ -129,7 +127,7 @@ class PortfoliosRepository:
             {where_query}
         """
 
-        print('query')
+        print("query")
 
         cache_file = f"portfolios_client_style_{as_of_date}.parquet"
 
@@ -281,7 +279,6 @@ class PortfoliosRepository:
         )
 
         return acct_customer_mapping
-
 
 
 if __name__ == "__main__":

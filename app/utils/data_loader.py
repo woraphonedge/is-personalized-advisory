@@ -72,6 +72,10 @@ class DataLoader:
         if self.load_from_db:
             try:
                 df = self.read_sql(query)
+
+                # Fix: Convert es_core_port NaN to False BEFORE type casting
+                if "es_core_port" in df.columns:
+                    df["es_core_port"] = df["es_core_port"].fillna(False)
             except Exception as e:
                 print(
                     f"[{self.__class__.__name__}] Error: failed to execute query {query}: {e}"
