@@ -53,17 +53,15 @@ from .data_store import (
     lifespan,
 )
 from .models import (
-    ActionLog,
     ClientListResponse,
     HealthMetrics,
     HealthMetricsRequest,
     PortfolioResponse,
     RebalanceRequest,
-    RebalanceRequestMock,
     RebalanceResponse,
 )
 from .utils.health_service import override_client_style
-from .utils.rebalancer_mock import compute_portfolio_health, propose_rebalance
+from .utils.rebalancer_mock import compute_portfolio_health
 
 app = FastAPI(title="Investment Rebalancing API", lifespan=lifespan)
 
@@ -245,33 +243,6 @@ async def get_portfolio(
     except Exception as e:
         logger.exception("Failed to build portfolio for customer_id=%s", customer_id)
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.post("/api/v1/rebalance_mock", response_model=RebalanceResponse)
-def rebalance_mock(request: RebalanceRequestMock) -> RebalanceResponse:
-    """Rebalance a customer’s portfolio based on the provided request."""
-    # Use provided portfolio or build from customer_id
-    try:
-        current = request.portfolio
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    # Perform rebalance
-    new_portfolio, actions = propose_rebalance(
-        request, current, app.state.candidate_data
-    )
-    # Compute health metrics and extract score
-    _metrics = compute_portfolio_health(
-        new_portfolio,
-        request.objective.target_alloc,
-    )
-    health = _metrics.score
-    # Build response
-    return RebalanceResponse(
-        actions=[ActionLog(**a) for a in actions],
-        portfolio=new_portfolio,
-        health_score=health,
-    )
 
 
 @app.post("/api/v1/rebalance", response_model=RebalanceResponse)

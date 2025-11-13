@@ -13,11 +13,10 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Optional
 
 import pandas as pd
 
-from app.models import Position
 from app.utils.data_loader import DataLoader
 from app.utils.health_score import HealthScore
 from app.utils.portfolios import Portfolios
@@ -28,21 +27,18 @@ from app.utils.rebalancer import Rebalancer
 from app.utils.rebalancer_repo import RebalancerRepository
 
 # Module-level caches populated during app lifespan
-_candidate_data: Optional[List[Position]] = None
-df_out_loaded = None
-df_style_loaded = None
-port_ids_loaded = None
-port_id_mapping_loaded = None
-sales_customer_mapping_loaded = None
-acct_customer_mapping_loaded = None
+df_out_loaded: Optional[pd.DataFrame] = None
+df_style_loaded: Optional[pd.DataFrame] = None
+port_ids_loaded: Optional[pd.DataFrame] = None
+port_id_mapping_loaded: Optional[pd.DataFrame] = None
+acct_customer_mapping_loaded: Optional[pd.DataFrame] = None
+sales_customer_mapping_loaded: Optional[dict[str, str]] = None
 
 discretionary_acceptance = 0.4
 as_of_date = os.getenv("AS_OF_DATE", "2025-09-30")
 
-
-loader = DataLoader()
-
 # Repositories
+loader = DataLoader()
 ports_repo = PortfoliosRepository(loader)
 ppm_repo = PortpropMatricesRepository(loader)
 
@@ -80,105 +76,6 @@ try:
 except Exception as e:
     # Keep startup resilient; phases will skip with [TEMP-DEBUG] logs if missing
     print(f"[startup] Rebalancer refs not fully loaded: {e}")
-
-
-def load_data() -> None:
-    """Load in-memory dataset and candidate universe."""
-    global _candidate_data
-    # Define candidate universe for purchase
-    _candidate_data = [
-        Position(
-            product_id="CASH",
-            src_symbol="CASH",
-            asset_class="Cash and Cash Equivalent",
-            asset_sub_class="Cash THB",
-            unit_bal=0,
-            unit_price_thb=1,
-            unit_cost_thb=1,
-            expected_return=0.0,
-            expected_income_yield=0.0,
-            volatility=0.01,
-            is_monitored=True,
-        ),
-        Position(
-            product_id="GLB_EQTY_FUND",
-            src_symbol="GLBL2",
-            asset_class="Global Equity",
-            asset_sub_class="Global Equity",
-            unit_bal=0,
-            unit_price_thb=100,
-            unit_cost_thb=100,
-            expected_return=0.11,
-            expected_income_yield=0.02,
-            volatility=0.20,
-            is_monitored=True,
-        ),
-        Position(
-            product_id="GLB_BOND_FUND",
-            src_symbol="BOND3",
-            asset_class="Fixed Income",
-            asset_sub_class="Global Bond",
-            unit_bal=0,
-            unit_price_thb=50,
-            unit_cost_thb=50,
-            expected_return=0.04,
-            expected_income_yield=0.04,
-            volatility=0.03,
-            is_monitored=True,
-        ),
-        Position(
-            product_id="TH_EQTY_FUND",
-            src_symbol="LOCAL2",
-            asset_class="Local Equity",
-            asset_sub_class="Thai Equity",
-            unit_bal=0,
-            unit_price_thb=60,
-            unit_cost_thb=60,
-            expected_return=0.07,
-            expected_income_yield=0.015,
-            volatility=0.22,
-            is_monitored=True,
-        ),
-        Position(
-            product_id="ALT1",
-            src_symbol="ALT1",
-            asset_class="Alternative",
-            asset_sub_class="Prop/Infra Fund",
-            unit_bal=0,
-            unit_price_thb=80,
-            unit_cost_thb=80,
-            expected_return=0.10,
-            expected_income_yield=0.0,
-            volatility=0.35,
-            is_monitored=True,
-        ),
-        Position(
-            product_id="AA2",
-            src_symbol="AA2",
-            asset_class="Allocation",
-            asset_sub_class="Moderate Allocation",
-            unit_bal=0,
-            unit_price_thb=105,
-            unit_cost_thb=105,
-            expected_return=0.075,
-            expected_income_yield=0.03,
-            volatility=0.12,
-            is_monitored=True,
-            exposures={
-                "Cash and Cash Equivalent": 0.05,
-                "Fixed Income": 0.30,
-                "Global Equity": 0.45,
-                "Local Equity": 0.10,
-                "Alternative": 0.10,
-            },
-        ),
-    ]
-
-
-def get_candidate_data() -> List[Position]:
-    if _candidate_data is None:
-        raise RuntimeError("Data store not initialized: candidate_data is None")
-    return _candidate_data
 
 
 def prepare_portfolio_data() -> None:
@@ -269,7 +166,6 @@ def get_sales_customer_mapping() -> pd.DataFrame:
 @asynccontextmanager
 async def lifespan(app):
     """FastAPI lifespan context that initializes in-memory data."""
-    load_data()
     # Load sales-customer mapping for access control
     load_sales_customer_mapping()
     # Best-effort to prepare portfolio data; keep app starting even if DB not reachable
@@ -293,8 +189,6 @@ async def lifespan(app):
             # If models import fails at startup, routes can still import lazily
             pass
         app.state.AS_OF_DATE = as_of_date
-        # Candidate purchase universe
-        app.state.candidate_data = get_candidate_data()
         # Expose sales-customer mapping for access control
         app.state.sales_customer_mapping = get_sales_customer_mapping()
         # Optionally prepare portfolio data if backend sources are reachable
