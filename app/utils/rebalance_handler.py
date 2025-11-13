@@ -621,8 +621,9 @@ def _perform_rebalance_inner(
     )
     df_style_loaded = _build_df_style(request.customer_id, style_value)
 
-    # Enrich portfolio data with product mapping
-    ports = copy.deepcopy(state.ports)
+    # Create a shallow copy of ports for this rebalance operation
+    # Deep copy is unnecessary as we only need to modify the portfolio data, not reference tables
+    ports = copy.copy(state.ports)
     try:
         pm = getattr(ports, "product_mapping", None)
         df_out = _enrich_portfolio_data(df_out, pm)

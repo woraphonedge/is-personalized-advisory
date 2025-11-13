@@ -1048,7 +1048,14 @@ class Rebalancer:
             if reset_state:
                 self.reset_state()
 
-            self.new_ports = copy.deepcopy(ports)
+            # Create a new ports instance with copied portfolio data
+            # Deep copy is unnecessary - we only need to modify the portfolio, not reference tables
+            self.new_ports = copy.copy(ports)
+            # Copy only the mutable portfolio data, not the reference tables
+            self.new_ports.df_out = ports.df_out.copy()
+            self.new_ports.df_style = ports.df_style.copy()
+            self.new_ports.port_ids = ports.port_ids.copy()
+            self.new_ports.port_id_mapping = ports.port_id_mapping.copy()
 
             health_score_before = self.new_ports.get_portfolio_health_score(ppm, hs)[0]["health_score"].values[0]
 
