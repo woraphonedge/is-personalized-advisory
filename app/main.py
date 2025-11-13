@@ -117,6 +117,7 @@ async def list_clients(
         return list_clients_service(
             df_style=app.state.ports.df_style,
             port_id_mapping=app.state.ports.port_id_mapping,
+            acct_cust_mapping=app.state.ports.acct_cust_mapping,
             customer_id=customer_id,
             query=query,
             sales_id=sales_id,

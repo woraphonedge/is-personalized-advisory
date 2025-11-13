@@ -34,6 +34,7 @@ df_style_loaded = None
 port_ids_loaded = None
 port_id_mapping_loaded = None
 sales_customer_mapping_loaded = None
+acct_customer_mapping_loaded = None
 
 discretionary_acceptance = 0.4
 as_of_date = os.getenv("AS_OF_DATE", "2025-09-30")
@@ -185,7 +186,7 @@ def prepare_portfolio_data() -> None:
 
     Uses new repository loaders consistent with the sample notebook usage.
     """
-    global df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded
+    global df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded, acct_customer_mapping_loaded
 
     # Load all client positions and styles as of configured date
     df_out_raw = ports_repo.load_client_out_product_enriched(
@@ -208,6 +209,15 @@ def prepare_portfolio_data() -> None:
     ports.set_portfolio(
         df_out_loaded, df_style_loaded, port_ids_loaded, port_id_mapping_loaded
     )
+
+    # Load account-customer mapping for account-number based search
+    try:
+        acct_customer_mapping_loaded = ports_repo.load_acct_customer_mapping()
+        # Attach to global portfolios instance for easy access via app.state.ports
+        ports.acct_cust_mapping = acct_customer_mapping_loaded
+    except Exception as e:
+        # Non-fatal at startup; account-number search will simply not return results
+        print(f"[startup] Error loading acct_customer_mapping: {e}")
 
 
 def load_sales_customer_mapping() -> None:
