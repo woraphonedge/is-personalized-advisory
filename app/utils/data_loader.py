@@ -30,9 +30,14 @@ class DataLoader:
 
     def get_data_dir(self) -> Path:
         """Return the path to the project's data directory, creating it if needed."""
-        # utils/ -> parent is personalized_advisory/, then 'data'
-        base = Path(__file__).resolve().parents[1]
-        data_dir = base / "data"
+        # For Docker, use /app/data directly
+        # For local development, use relative path from app directory
+        if Path("/app/data").exists():
+            data_dir = Path("/app/data")
+        else:
+            # utils/ -> parent is app/, then 'data'
+            base = Path(__file__).resolve().parents[1]
+            data_dir = base / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
 
