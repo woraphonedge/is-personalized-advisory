@@ -78,7 +78,7 @@ class DataLoader:
                 )
 
             try:
-                self.write_parquet(df, cache_file)
+                self.write_parquet(df, cache_file, schema=type_dict)
             except Exception as e:
                 print(
                     f"[{self.__class__.__name__}] Error: failed to persist {cache_file}: {e}"
