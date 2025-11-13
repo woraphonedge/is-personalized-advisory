@@ -51,5 +51,5 @@ USER appuser
 # Expose the port the app runs on (matches default PORT=8100)
 EXPOSE 8100
 
-# Command to run the application using the cached virtual environment
-CMD ["python", "-m", "app.main"]
+# Command to run the application with gunicorn + 4 workers for CPU-bound rebalance
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8100", "--timeout", "60"]
