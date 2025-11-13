@@ -112,6 +112,7 @@ def get_portfolio_for_customer(ports, customer_id: int):
                 isMonitored=True,
                 coveragePrdtype=r.get("coverage_prdtype"),
                 isCoverage=r.get("is_coverage"),
+                isRiskyAsset=r.get("is_risky_asset"),
                 esCorePort=r.get("es_core_port"),
                 esSellList=r.get("es_sell_list"),
                 flagTopPick=r.get("flag_top_pick"),
