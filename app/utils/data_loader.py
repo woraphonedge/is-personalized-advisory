@@ -38,10 +38,14 @@ class DataLoader:
         df.columns = [col.lower() for col in df.columns]
         return df.replace({pd.NA: np.nan})
 
-    def write_parquet(self, df: pd.DataFrame, filename: str) -> Path:
+    def write_parquet(self, df: pd.DataFrame, filename: str, schema: dict = None) -> Path:
         """Write a DataFrame to Parquet under data/ and return the full path."""
         path = self.get_data_dir() / filename
-        df.to_parquet(path, index=False)
+        # Apply schema if provided to enforce correct data types
+        if schema:
+            df = df.astype(schema)
+        # Use pyarrow engine to preserve boolean types correctly
+        df.to_parquet(path, index=False, engine="pyarrow")
         return path
 
     def read_parquet(self, filename: str) -> pd.DataFrame:
