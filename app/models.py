@@ -18,25 +18,24 @@ class Position(BaseModel):
     # Explicit camelCase aliases allow the API to accept frontend camelCase while
     # still using snake_case internally. With populate_by_name enabled, both
     # formats are accepted during validation.
-    product_id: Optional[str] = Field(alias="productId")
-    desk: Optional[str] = Field(default=None, alias="desk")
-    port_type: Optional[str] = Field(default=None, alias="portType")
+    product_id: str = Field(alias="productId")
+    desk: str = Field(default=None, alias="desk")
+    port_type: str = Field(default=None, alias="portType")
     src_symbol: str = Field(alias="symbol")
-    src_sharecodes: Optional[str] = Field(default=None, alias="srcSharecodes")
+    src_sharecodes: str = Field(default=None, alias="srcSharecodes")
     asset_class: str = Field(
         alias="assetClass",
         description="(Cash, Fixed Income, Global Equity, Local Equity, Alternative, Asset Allocation)",
     )
-    asset_sub_class: Optional[str] = Field(alias="assetSubClass")
+    asset_sub_class: str | None = Field(default=None, alias="assetSubClass")
     unit_bal: float = Field(alias="unitBal")
     unit_price_thb: float = Field(alias="unitPriceThb")
     unit_cost_thb: float = Field(alias="unitCostThb")
-    mkt_val_thb: Optional[float] = Field(
-        default=None,
+    mkt_val_thb: float = Field(
         alias="marketValue",
         description="Explicit market value in THB. When provided by certain APIs (e.g., health-score), prefer this over unit_bal * unit_price_thb without relying on units/prices.",
     )
-    currency: Optional[str] = Field(default=None, alias="currency")
+    currency: str = Field(alias="currency")
 
     expected_return: float = Field(
         alias="expectedReturn",
@@ -51,18 +50,18 @@ class Position(BaseModel):
         alias="volatility",
         description="Annualised standard deviation (decimal fraction)",
     )
-    product_type_desc: Optional[str] = Field(default=None, alias="productTypeDesc")
-    coverage_prdtype: Optional[str] = Field(default=None, alias="coveragePrdtype")
+    product_type_desc: str = Field(alias="productTypeDesc")
+    coverage_prdtype: str | None = Field(default=None, alias="coveragePrdtype")
     is_monitored: bool = Field(
         alias="isMonitored", description="Whether the position is monitored"
     )
-    is_risky_asset: Optional[bool] = Field(default=None, alias="isRiskyAsset")
-    is_coverage: Optional[bool] = Field(default=None, alias="isCoverage")
-    product_display_name: Optional[str] = Field(default=None, alias="productDisplayName")
-    es_core_port: Optional[bool] = Field(default=None, alias="isCorePort")
-    es_sell_list: Optional[str | None] = Field(default=None, alias="esSellList")
-    flag_top_pick: Optional[str | None] = Field(default=None, alias="flagTopPick")
-    flag_tax_saving: Optional[str | None] = Field(default=None, alias="flagTaxSaving")
+    is_risky_asset: bool = Field(alias="isRiskyAsset")
+    is_coverage: bool = Field(alias="isCoverage")
+    product_display_name: str | None = Field(default=None, alias="productDisplayName")
+    es_core_port: bool = Field(alias="esCorePort")
+    es_sell_list: str | None = Field(default=None, alias="esSellList")
+    flag_top_pick: str = Field(alias="flagTopPick")
+    flag_tax_saving: str | None = Field(default=None, alias="flagTaxSaving")
     exposures: Optional[Dict[str, float]] = Field(
         default=None,
         alias="exposures",
@@ -129,11 +128,12 @@ class Portfolio(BaseModel):
 
 class PortfolioResponse(BaseModel):
     """Response model for portfolio endpoint that includes portfolio data and client style."""
+
     portfolio: Portfolio = Field(description="Portfolio with positions")
     client_style: Optional[str] = Field(
         default=None,
         alias="clientStyle",
-        description="Client investment style from df_style (e.g., 'High Risk', 'Conservative', 'Unwavering')"
+        description="Client investment style from df_style (e.g., 'High Risk', 'Conservative', 'Unwavering')",
     )
 
     model_config = ConfigDict(
@@ -165,7 +165,7 @@ class Objective(BaseModel):
     )
     client_style: Optional[str] = Field(
         default=None,
-        description="Client investment style label (e.g., High Risk, Conservative)"
+        description="Client investment style label (e.g., High Risk, Conservative)",
     )
 
 
@@ -195,11 +195,13 @@ class ConstraintsV2(BaseModel):
 
     These map to the parameters of utils.rebalancer_v2.Rebalancer.__init__.
     """
+
     private_percent: float = Field(
         0.0, description="Portfolio portion eligible for private products (0-1)"
     )
     cash_percent: Optional[float] = Field(
-        default=None, description="Explicit target cash percent (0-1), None to use model"
+        default=None,
+        description="Explicit target cash percent (0-1), None to use model",
     )
     offshore_percent: Optional[float] = Field(
         default=None, description="Target offshore exposure percent (0-1)"
@@ -211,7 +213,8 @@ class ConstraintsV2(BaseModel):
         default=None, description="List of product symbols explicitly allowed"
     )
     product_blacklist: Optional[List[str]] = Field(
-        default=None, description="List of product symbols to exclude (takes precedence over restriction)"
+        default=None,
+        description="List of product symbols to exclude (takes precedence over restriction)",
     )
     discretionary_acceptance: float = Field(
         default=0.4,
@@ -238,15 +241,17 @@ class HealthMetricsRequest(BaseModel):
     client_style: Optional[str] = Field(
         default=None,
         description="Client investment style (e.g., 'High Risk', 'Conservative', 'Aggressive Growth'). "
-                    "NOTE: Currently not used in health score calculation. The system uses the stored "
-                    "style from df_style (port_investment_style column) which is loaded at startup. "
-                    "Future implementation should override the stored style with this value when provided."
+        "NOTE: Currently not used in health score calculation. The system uses the stored "
+        "style from df_style (port_investment_style column) which is loaded at startup. "
+        "Future implementation should override the stored style with this value when provided.",
     )
 
 
 class ActionLog(BaseModel):
     action: str  # buy, sell, funding
-    flag: Optional[str] = None  # new_money, not_monitored_product, cash_proxy_funding, etc.
+    flag: Optional[str] = (
+        None  # new_money, not_monitored_product, cash_proxy_funding, etc.
+    )
     flag_msg: Optional[str] = None  # Human-readable description
     symbol: Optional[str] = None
     amount: Optional[float] = None  # Transaction amount in THB
@@ -321,7 +326,7 @@ class HealthDetailMetrics(BaseModel):
     model_asset_allocation: Dict[str, float] | None = Field(
         default=None,
         alias="modelAssetAllocation",
-        description="Target asset allocation from advisory model matching client investment style"
+        description="Target asset allocation from advisory model matching client investment style",
     )
 
 
@@ -332,20 +337,29 @@ class HealthMetrics(BaseModel):
     the notebook's 'health_score'. All component details are in 'metrics'.
     """
 
-    score: float = Field(description="Overall health score (mirrors notebook health_score)")
+    score: float = Field(
+        description="Overall health score (mirrors notebook health_score)"
+    )
     metrics: HealthDetailMetrics
 
 
 class ClientListItem(BaseModel):
     """Individual client item in the client list response."""
+
     customer_id: int = Field(alias="customerId")
     client_full_name_th: Optional[str] = Field(default=None, alias="clientFullNameTh")
     client_first_name_en: Optional[str] = Field(default=None, alias="clientFirstNameEn")
-    port_investment_style: Optional[str] = Field(default=None, alias="portInvestmentStyle")
+    port_investment_style: Optional[str] = Field(
+        default=None, alias="portInvestmentStyle"
+    )
     client_tier: Optional[str] = Field(default=None, alias="clientTier")
     business_unit: Optional[str] = Field(default=None, alias="businessUnit")
-    client_segment_by_inv_aum: Optional[str] = Field(default=None, alias="clientSegmentByInvAum")
-    client_sub_segment_by_inv_aum: Optional[str] = Field(default=None, alias="clientSubSegmentByInvAum")
+    client_segment_by_inv_aum: Optional[str] = Field(
+        default=None, alias="clientSegmentByInvAum"
+    )
+    client_sub_segment_by_inv_aum: Optional[str] = Field(
+        default=None, alias="clientSubSegmentByInvAum"
+    )
     sales_id: Optional[str] = Field(default=None, alias="salesId")
     ui_client: Optional[str] = Field(default=None, alias="uiClient")
     sales_first_name_en: Optional[str] = Field(default=None, alias="salesFirstNameEn")
@@ -358,5 +372,6 @@ class ClientListItem(BaseModel):
 
 class ClientListResponse(BaseModel):
     """Response model for client list endpoint."""
+
     clients: List[ClientListItem] = Field(description="List of matching clients")
     total: int = Field(description="Total number of matches returned")

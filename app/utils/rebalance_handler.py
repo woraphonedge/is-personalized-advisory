@@ -23,8 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _build_df_style(
-    customer_id: int,
-    style: str | dict[str, Any] | list[dict[str, Any] | str] | None
+    customer_id: int, style: str | dict[str, Any] | list[dict[str, Any] | str] | None
 ) -> pd.DataFrame:
     """Normalize style payload into a single-row DataFrame.
 
@@ -47,7 +46,9 @@ def _build_df_style(
     """
     # Validate customer_id
     if not isinstance(customer_id, int) or customer_id <= 0:
-        raise ValueError(f"Invalid customer_id: {customer_id}. Must be a positive integer.")
+        raise ValueError(
+            f"Invalid customer_id: {customer_id}. Must be a positive integer."
+        )
 
     # Extract style label from various input formats
     label: str | None = None
@@ -81,7 +82,7 @@ def _build_df_style(
         label = "High Risk"
         logger.debug(
             "No valid style provided for customer_id=%s, defaulting to 'High Risk'",
-            customer_id
+            customer_id,
         )
 
     # Map to PortProp style name
@@ -89,7 +90,8 @@ def _build_df_style(
     if label not in STYLE_MAP:
         logger.warning(
             "Unknown investment style '%s' for customer_id=%s, mapping to 'High Risk'",
-            label, customer_id
+            label,
+            customer_id,
         )
 
     data = {
@@ -102,8 +104,7 @@ def _build_df_style(
 
 
 def _enrich_portfolio_data(
-    df_portfolio: pd.DataFrame,
-    product_mapping: pd.DataFrame | None
+    df_portfolio: pd.DataFrame, product_mapping: pd.DataFrame | None
 ) -> pd.DataFrame:
     """Enrich portfolio data with product information from product_mapping.
 
@@ -142,7 +143,9 @@ def _enrich_portfolio_data(
         enriched_na_mask = df_portfolio[enriched_cols].isna().any(axis=1)
         if enriched_na_mask.any():
             na_count = enriched_na_mask.sum()
-            na_rows = df_portfolio.loc[enriched_na_mask, ["product_id", "src_sharecodes"]]
+            na_rows = df_portfolio.loc[
+                enriched_na_mask, ["product_id", "src_sharecodes"]
+            ]
             raise ValueError(
                 f"Portfolio data validation failed: {na_count} positions have missing enriched data. "
                 f"Missing data in columns: {enriched_cols}. "
@@ -180,19 +183,11 @@ def _enrich_portfolio_data(
 
     # Try exact match with src_sharecodes + product_id + currency
     use_keys = ["src_sharecodes", "product_id", "currency"]
-    merged = df_portfolio.merge(
-        pm_sub, on=use_keys, how="left", suffixes=("", "_pm")
-    )
+    merged = df_portfolio.merge(pm_sub, on=use_keys, how="left", suffixes=("", "_pm"))
 
     # Validate all positions were successfully mapped
     still_missing = (
-        merged[
-            [
-                f"{c}_pm"
-                for c in required_cols
-                if f"{c}_pm" in merged.columns
-            ]
-        ]
+        merged[[f"{c}_pm" for c in required_cols if f"{c}_pm" in merged.columns]]
         .isna()
         .all(axis=1)
     )
@@ -345,7 +340,7 @@ def _compute_health_metrics(
     new_ports: Any,
     actions_df: pd.DataFrame | None,
     state: Any,
-    request: RebalanceRequest
+    request: RebalanceRequest,
 ) -> tuple[Portfolio, List[ActionLog], HealthMetrics]:
     """Compute health metrics for the proposed portfolio.
 
@@ -361,6 +356,7 @@ def _compute_health_metrics(
     Raises:
         Exception: If health metrics calculation fails completely
     """
+
     # Helper functions for handling NA values safely
     def safe_str(val, default="UNKNOWN"):
         if pd.isna(val) or val is None:
@@ -382,11 +378,17 @@ def _compute_health_metrics(
             action_logs.append(
                 ActionLog(
                     action=safe_str(r.get("action"), "trade"),  # buy, sell, funding
-                    flag=safe_str(r.get("flag"), None),  # new_money, not_monitored_product, etc.
-                    flag_msg=safe_str(r.get("flag_msg"), None),  # Human-readable description
+                    flag=safe_str(
+                        r.get("flag"), None
+                    ),  # new_money, not_monitored_product, etc.
+                    flag_msg=safe_str(
+                        r.get("flag_msg"), None
+                    ),  # Human-readable description
                     symbol=safe_str(r.get("src_sharecodes"), "UNKNOWN"),
                     amount=safe_float(r.get("amount")),  # Transaction amount
-                    asset_class_name=safe_str(r.get("asset_class_name"), None),  # Asset class
+                    asset_class_name=safe_str(
+                        r.get("asset_class_name"), None
+                    ),  # Asset class
                     # Legacy fields for backward compatibility
                     step="",
                     trade_type=safe_str(r.get("action"), "trade"),
@@ -424,6 +426,15 @@ def _compute_health_metrics(
                     currency=safe_str(r.get("currency")),
                     symbol=symbol_val,
                     srcSharecodes=safe_str(r.get("src_sharecodes"), ""),
+                    productDisplayName=safe_str(r.get("product_display_name")),
+                    productTypeDesc=safe_str(r.get("product_type_desc")),
+                    coveragePrdtype=safe_str(r.get("coverage_prdtype")),
+                    isRiskyAsset=bool(r.get("is_risky_asset", False)),
+                    isCoverage=bool(r.get("is_coverage", False)),
+                    esCorePort=bool(r.get("es_core_port", False)),
+                    esSellList=safe_str(r.get("es_sell_list"), None),
+                    flagTopPick=safe_str(r.get("flag_top_pick")),
+                    flagTaxSaving=safe_str(r.get("flag_tax_saving"), None),
                     assetClass=safe_str(r.get("asset_class_name")),
                     assetSubClass=safe_str(r.get("asset_sub_class"), None),
                     unitBal=0.0,
@@ -446,7 +457,9 @@ def _compute_health_metrics(
         )
 
         if df_health is None or len(df_health) == 0:
-            logger.warning("No health metrics returned from proposed portfolio, using mock")
+            logger.warning(
+                "No health metrics returned from proposed portfolio, using mock"
+            )
             _metrics = compute_portfolio_health(
                 proposed_portfolio_model,
                 request.objective.target_alloc,
@@ -458,10 +471,18 @@ def _compute_health_metrics(
 
             # Current asset allocation (lookthrough)
             try:
-                alloc_df = new_ports.get_portfolio_asset_allocation_lookthrough(state.ppm)
-                arow = alloc_df.iloc[0] if alloc_df is not None and len(alloc_df) > 0 else None
+                alloc_df = new_ports.get_portfolio_asset_allocation_lookthrough(
+                    state.ppm
+                )
+                arow = (
+                    alloc_df.iloc[0]
+                    if alloc_df is not None and len(alloc_df) > 0
+                    else None
+                )
                 asset_allocation = {
-                    "Cash and Cash Equivalent": float(arow["aa_cash"]) if arow is not None else 0.0,
+                    "Cash and Cash Equivalent": (
+                        float(arow["aa_cash"]) if arow is not None else 0.0
+                    ),
                     "Fixed Income": float(arow["aa_fi"]) if arow is not None else 0.0,
                     "Local Equity": float(arow["aa_le"]) if arow is not None else 0.0,
                     "Global Equity": float(arow["aa_ge"]) if arow is not None else 0.0,
@@ -473,18 +494,37 @@ def _compute_health_metrics(
 
             # Model asset allocation (advisory model based on client investment style)
             try:
-                model_alloc_df = new_ports.get_model_asset_allocation_lookthrough(state.ppm)
-                mrow = model_alloc_df.iloc[0] if model_alloc_df is not None and len(model_alloc_df) > 0 else None
+                model_alloc_df = new_ports.get_model_asset_allocation_lookthrough(
+                    state.ppm
+                )
+                mrow = (
+                    model_alloc_df.iloc[0]
+                    if model_alloc_df is not None and len(model_alloc_df) > 0
+                    else None
+                )
                 model_asset_allocation = {
-                    "Cash and Cash Equivalent": float(mrow["aa_cash_model"]) if mrow is not None else 0.0,
-                    "Fixed Income": float(mrow["aa_fi_model"]) if mrow is not None else 0.0,
-                    "Local Equity": float(mrow["aa_le_model"]) if mrow is not None else 0.0,
-                    "Global Equity": float(mrow["aa_ge_model"]) if mrow is not None else 0.0,
-                    "Alternative": float(mrow["aa_alt_model"]) if mrow is not None else 0.0,
+                    "Cash and Cash Equivalent": (
+                        float(mrow["aa_cash_model"]) if mrow is not None else 0.0
+                    ),
+                    "Fixed Income": (
+                        float(mrow["aa_fi_model"]) if mrow is not None else 0.0
+                    ),
+                    "Local Equity": (
+                        float(mrow["aa_le_model"]) if mrow is not None else 0.0
+                    ),
+                    "Global Equity": (
+                        float(mrow["aa_ge_model"]) if mrow is not None else 0.0
+                    ),
+                    "Alternative": (
+                        float(mrow["aa_alt_model"]) if mrow is not None else 0.0
+                    ),
                     "Allocation": 0.0,
                 }
             except Exception as e:
-                logger.error("Failed to retrieve model asset allocation for proposed portfolio: %s", e)
+                logger.error(
+                    "Failed to retrieve model asset allocation for proposed portfolio: %s",
+                    e,
+                )
                 model_asset_allocation = {}
 
             from app.models import HealthDetailMetrics
@@ -492,7 +532,9 @@ def _compute_health_metrics(
             detail = HealthDetailMetrics(
                 port_id=int(row.get("port_id", 0) or 0),
                 expected_return=float(row.get("expected_return", 0.0) or 0.0),
-                expected_return_model=float(row.get("expected_return_model", 0.0) or 0.0),
+                expected_return_model=float(
+                    row.get("expected_return_model", 0.0) or 0.0
+                ),
                 score_ret=int(row.get("score_ret", 0) or 0),
                 volatility=float(row.get("volatility", 0.0) or 0.0),
                 volatility_model=float(row.get("volatility_model", 0.0) or 0.0),
@@ -505,10 +547,18 @@ def _compute_health_metrics(
                 score_diversification=int(row.get("score_diversification", 0) or 0),
                 score_bulk_risk=int(row.get("score_bulk_risk", 0) or 0),
                 score_issuer_risk=int(row.get("score_issuer_risk", 0) or 0),
-                score_non_cover_global_stock=int(row.get("score_non_cover_global_stock", 0) or 0),
-                score_non_cover_local_stock=int(row.get("score_non_cover_local_stock", 0) or 0),
-                score_non_cover_mutual_fund=int(row.get("score_non_cover_mutual_fund", 0) or 0),
-                score_not_monitored_product=float(row.get("score_not_monitored_product", 0.0) or 0.0),
+                score_non_cover_global_stock=int(
+                    row.get("score_non_cover_global_stock", 0) or 0
+                ),
+                score_non_cover_local_stock=int(
+                    row.get("score_non_cover_local_stock", 0) or 0
+                ),
+                score_non_cover_mutual_fund=int(
+                    row.get("score_non_cover_mutual_fund", 0) or 0
+                ),
+                score_not_monitored_product=float(
+                    row.get("score_not_monitored_product", 0.0) or 0.0
+                ),
                 asset_allocation=asset_allocation,
                 model_asset_allocation=model_asset_allocation,
             )
@@ -517,7 +567,9 @@ def _compute_health_metrics(
             health_metrics = HealthMetrics(score=health, metrics=detail)
 
     except Exception as e:
-        logger.exception("Failed to compute real health score, falling back to mock: %s", e)
+        logger.exception(
+            "Failed to compute real health score, falling back to mock: %s", e
+        )
         _metrics = compute_portfolio_health(
             proposed_portfolio_model,
             request.objective.target_alloc,
@@ -543,7 +595,9 @@ def perform_rebalance(state: Any, request: RebalanceRequest) -> RebalanceRespons
         return _perform_rebalance_inner(state, request)
 
 
-def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> RebalanceResponse:
+def _perform_rebalance_inner(
+    state: Any, request: RebalanceRequest
+) -> RebalanceResponse:
     """Inner rebalance logic that runs within the style override context."""
     # Convert incoming portfolio to df and tag with customer id
     try:
@@ -562,7 +616,9 @@ def _perform_rebalance_inner(state: Any, request: RebalanceRequest) -> Rebalance
     # Build style DataFrame
     # Prefer client_style from objective (new field), fallback to legacy style field
     style_value = request.objective.client_style if request.objective else request.style
-    logger.debug(f"Style from request.style={request.style}, request.objective.client_style={request.objective.client_style if request.objective else None}")
+    logger.debug(
+        f"Style from request.style={request.style}, request.objective.client_style={request.objective.client_style if request.objective else None}"
+    )
     df_style_loaded = _build_df_style(request.customer_id, style_value)
 
     # Enrich portfolio data with product mapping
