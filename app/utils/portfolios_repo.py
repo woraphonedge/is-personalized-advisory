@@ -1,7 +1,7 @@
 import pandas as pd
 
 from .data_loader import DataLoader
-from .utils import get_latest_eom
+from .utils import get_latest_eom, databricks_half_mask_column
 
 
 class PortfoliosRepository:
@@ -94,12 +94,12 @@ class PortfoliosRepository:
         dim_column_select = [
             "A.AS_OF_DATE",
             "A.customer_id",
-            # "CONCAT(SUBSTR(B.CLIENT_FULL_NAME_TH, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FULL_NAME_TH) - 1)) as CLIENT_FULL_NAME_TH",
-            # "CONCAT(SUBSTR(B.CLIENT_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_FIRST_NAME_EN) - 1)) as CLIENT_FIRST_NAME_EN",
-            # "CONCAT(SUBSTR(B.CLIENT_LAST_NAME_EN, 1, 1), REPEAT('*', LENGTH(B.CLIENT_LAST_NAME_EN) - 1)) as CLIENT_LAST_NAME_EN",
-            "B.CLIENT_FULL_NAME_TH",
-            "B.CLIENT_FIRST_NAME_EN",
-            "B.CLIENT_LAST_NAME_EN",
+            f"{databricks_half_mask_column('B.CLIENT_FULL_NAME_TH')} as CLIENT_FULL_NAME_TH",
+            f"{databricks_half_mask_column('B.CLIENT_FIRST_NAME_EN')} as CLIENT_FIRST_NAME_EN",
+            f"{databricks_half_mask_column('B.CLIENT_LAST_NAME_EN')} as CLIENT_LAST_NAME_EN",
+            # "B.CLIENT_FULL_NAME_TH",
+            # "B.CLIENT_FIRST_NAME_EN",
+            # "B.CLIENT_LAST_NAME_EN",
             f"A.{style_column} as port_investment_style",
             "B.CLIENT_TIER",
             "B.BUSINESS_UNIT",
@@ -107,10 +107,10 @@ class PortfoliosRepository:
             "B.CLIENT_SUB_SEGMENT_BY_INV_AUM",
             "B.SALES_ID",
             "B.UI_Client",
-            # "CONCAT(SUBSTR(C.SALES_FIRST_NAME_EN, 1, 1), REPEAT('*', LENGTH(C.SALES_FIRST_NAME_EN) - 1)) as SALES_FIRST_NAME_EN",
-            # "CONCAT(SUBSTR(C.SALES_TEAM, 1, 1), REPEAT('*', LENGTH(C.SALES_TEAM) - 1)) as SALES_TEAM",
-            "C.SALES_FIRST_NAME_EN",
-            "C.SALES_TEAM",
+            f"{databricks_half_mask_column('C.SALES_FIRST_NAME_EN')} as SALES_FIRST_NAME_EN",
+            f"{databricks_half_mask_column('C.SALES_TEAM')} as SALES_TEAM",
+            # "C.SALES_FIRST_NAME_EN",
+            # "C.SALES_TEAM",
         ]
 
         where_query = (
@@ -128,6 +128,8 @@ class PortfoliosRepository:
                 AND C.DATA_DT = (SELECT max(DATA_DT) FROM edp.kkps_vw.v_pii_sales_info)
             {where_query}
         """
+
+        print('query')
 
         cache_file = f"portfolios_client_style_{as_of_date}.parquet"
 
