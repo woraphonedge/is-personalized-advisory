@@ -57,8 +57,8 @@ class Rebalancer:
         self.private_percent = private_percent
         self.cash_percent = cash_percent
         self.offshore_percent = offshore_percent
-        self.product_whitelist = [p.lower() for p in product_whitelist] or []
-        self.product_blacklist = [p.lower() for p in product_blacklist] or []
+        self.product_whitelist = [p.lower() for p in product_whitelist] if product_whitelist else []
+        self.product_blacklist = [p.lower() for p in product_blacklist] if product_blacklist else []
         self.discretionary_acceptance = 0.5 if discretionary_acceptance is None else float(discretionary_acceptance)
 
         self.eps = float(eps)
