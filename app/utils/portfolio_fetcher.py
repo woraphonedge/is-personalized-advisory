@@ -53,9 +53,15 @@ def get_portfolio_for_customer(ports, customer_id: int):
             else:
                 # No as_of_date column, just take first row
                 client_style = df_style.iloc[0].get("port_investment_style")
-            logger.debug("Extracted client_style=%s for customer_id=%s", client_style, customer_id)
+            logger.debug(
+                "Extracted client_style=%s for customer_id=%s",
+                client_style,
+                customer_id,
+            )
     except Exception as e:
-        logger.warning("Failed to extract client_style for customer_id=%s: %s", customer_id, e)
+        logger.warning(
+            "Failed to extract client_style for customer_id=%s: %s", customer_id, e
+        )
 
     # Normalize null-like values for flags
     try:
@@ -123,5 +129,9 @@ def get_portfolio_for_customer(ports, customer_id: int):
         )
 
     portfolio_model = Portfolio(positions=positions)
-    logger.debug("Built Portfolio model with %d positions and client_style=%s", len(positions), client_style)
+    logger.debug(
+        "Built Portfolio model with %d positions and client_style=%s",
+        len(positions),
+        client_style,
+    )
     return portfolio_model, client_style

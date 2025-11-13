@@ -9,10 +9,13 @@ from sqlalchemy import create_engine
 
 warnings.filterwarnings("ignore", message=".*_user_agent_entry.*")
 
+
 class DataLoader:
     def __init__(self, load_from_db: bool = None):
         if load_from_db is None:
-            self.load_from_db = str(os.getenv("LOAD_DATA_FROM_DWH", "")).strip().lower() in {"1", "true", "yes"}
+            self.load_from_db = str(
+                os.getenv("LOAD_DATA_FROM_DWH", "")
+            ).strip().lower() in {"1", "true", "yes"}
         else:
             self.load_from_db = load_from_db
 
@@ -20,7 +23,9 @@ class DataLoader:
         ACCESS_TOKEN = os.getenv("DATABRICKS_ACCESS_TOKEN")
         HTTP_PATH = os.getenv("DATABRICKS_HTTP_PATH")
         SERVER_HOSTNAME = os.getenv("DATABRICKS_SERVER_HOSTNAME")
-        conn_str = f"databricks://token:{ACCESS_TOKEN}@{SERVER_HOSTNAME}?http_path={HTTP_PATH}"
+        conn_str = (
+            f"databricks://token:{ACCESS_TOKEN}@{SERVER_HOSTNAME}?http_path={HTTP_PATH}"
+        )
         return create_engine(conn_str)
 
     def get_data_dir(self) -> Path:
@@ -38,7 +43,9 @@ class DataLoader:
         df.columns = [col.lower() for col in df.columns]
         return df.replace({pd.NA: np.nan})
 
-    def write_parquet(self, df: pd.DataFrame, filename: str, schema: dict = None) -> Path:
+    def write_parquet(
+        self, df: pd.DataFrame, filename: str, schema: dict = None
+    ) -> Path:
         """Write a DataFrame to Parquet under data/ and return the full path."""
         path = self.get_data_dir() / filename
         # Apply schema if provided to enforce correct data types
@@ -53,26 +60,31 @@ class DataLoader:
         path = self.get_data_dir() / filename
         return pd.read_parquet(path)
 
-
     def load_data(self, type_dict: dict = None, **kwargs) -> pd.DataFrame:
-        query = kwargs['query']
-        cache_file = kwargs['cache_file']
+        query = kwargs["query"]
+        cache_file = kwargs["cache_file"]
 
         if self.load_from_db:
             try:
                 df = self.read_sql(query)
             except Exception as e:
-                print(f"[{self.__class__.__name__}] Error: failed to execute query {query}: {e}")
+                print(
+                    f"[{self.__class__.__name__}] Error: failed to execute query {query}: {e}"
+                )
 
             try:
                 self.write_parquet(df, cache_file)
             except Exception as e:
-                print(f"[{self.__class__.__name__}] Error: failed to persist {cache_file}: {e}")
+                print(
+                    f"[{self.__class__.__name__}] Error: failed to persist {cache_file}: {e}"
+                )
         else:
             try:
                 df = self.read_parquet(cache_file)
             except Exception as e:
-                print(f"[{self.__class__.__name__}] Error: failed to read persist {cache_file}: {e}")
+                print(
+                    f"[{self.__class__.__name__}] Error: failed to read persist {cache_file}: {e}"
+                )
 
         if type_dict:
             try:
@@ -81,6 +93,7 @@ class DataLoader:
                 print(f"[{self.__class__.__name__}] Warning: casting dtypes: {e}")
 
         return df
+
 
 if __name__ == "__main__":
     loader = DataLoader()
