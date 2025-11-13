@@ -51,5 +51,5 @@ USER appuser
 # Expose the port the app runs on (matches default PORT=8100)
 EXPOSE 8100
 
-# Command to run the application using the script defined in pyproject.toml
-CMD ["uv", "run", "start"]
+# Command to run the application using the cached virtual environment
+CMD ["python", "-m", "app.main"]

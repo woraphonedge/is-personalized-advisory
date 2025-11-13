@@ -21,6 +21,11 @@ services:
       # Keep local/internal hosts off the proxy:
       - NO_PROXY=localhost,127.0.0.1
       - no_proxy=localhost,127.0.0.1
+    volumes:
+      # Mount data directory to persist parquet files outside the image
+      - ./app/data:/app/data
+      # Mount portprop data directory if it exists
+      - ./app/portprop_data:/app/portprop_data
     networks:
       - kkps-network
     restart: unless-stopped
