@@ -31,3 +31,7 @@ __pycache__
 
 #test
 test/
+
+# profiling output (profiles, text reports, JSON summaries)
+profiling_results/
+profiling_results/**

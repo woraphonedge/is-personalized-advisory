@@ -65,187 +65,42 @@ def create_realistic_test_request(customer_id: int | None = None) -> RebalanceRe
         return str(value)
 
     def build_mock_portfolio() -> Portfolio:
-        """Fallback portfolio using the existing hard-coded positions."""
+        """Fallback portfolio using JSON-derived mock positions.
 
-        positions = [
-            Position(
-                productId="PROD001",
-                desk="Equity",
-                portType="Discretionary",
-                currency="THB",
-                symbol="BBL",
-                srcSharecodes="BBL",
-                productDisplayName="Bangkok Bank Public Company Limited",
-                productTypeDesc="Equity",
-                assetClass="Local Equity",
-                marketValue=5000000.0,
-                expectedReturn=0.08,
-                isRiskyAsset=True,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=1000.0,
-                unitPriceThb=5000.0,
-                unitCostThb=4800.0,
-                volatility=0.15,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            Position(
-                productId="PROD002",
-                desk="Equity",
-                portType="Discretionary",
-                currency="THB",
-                symbol="SCB",
-                srcSharecodes="SCB",
-                productDisplayName="Siam Commercial Bank",
-                productTypeDesc="Equity",
-                assetClass="Local Equity",
-                marketValue=3000000.0,
-                expectedReturn=0.07,
-                isRiskyAsset=True,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=600.0,
-                unitPriceThb=5000.0,
-                unitCostThb=4900.0,
-                volatility=0.14,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            Position(
-                productId="PROD003",
-                desk="Fixed Income",
-                portType="Discretionary",
-                currency="THB",
-                symbol="LBHAGA",
-                srcSharecodes="LBHAGA",
-                productDisplayName="LH Financial Group Bond",
-                productTypeDesc="Bond",
-                assetClass="Fixed Income",
-                marketValue=8000000.0,
-                expectedReturn=0.04,
-                isRiskyAsset=False,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=8000.0,
-                unitPriceThb=1000.0,
-                unitCostThb=990.0,
-                volatility=0.05,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            Position(
-                productId="PROD004",
-                desk="Mutual Fund",
-                portType="Discretionary",
-                currency="THB",
-                symbol="TMBEQUAL",
-                srcSharecodes="TMBEQUAL",
-                productDisplayName="TMB Equal Fund",
-                productTypeDesc="Mutual Fund",
-                assetClass="Global Equity",
-                marketValue=4000000.0,
-                expectedReturn=0.10,
-                isRiskyAsset=True,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=4000.0,
-                unitPriceThb=1000.0,
-                unitCostThb=950.0,
-                volatility=0.12,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            Position(
-                productId="PROD005",
-                desk="Cash",
-                portType="Discretionary",
-                currency="THB",
-                symbol="CASH",
-                srcSharecodes="CASH",
-                productDisplayName="Cash Account",
-                productTypeDesc="Cash",
-                assetClass="Cash and Cash Equivalent",
-                marketValue=1000000.0,
-                expectedReturn=0.01,
-                isRiskyAsset=False,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=1000000.0,
-                unitPriceThb=1.0,
-                unitCostThb=1.0,
-                volatility=0.01,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            # Add more positions to simulate realistic portfolio
-            Position(
-                productId="PROD006",
-                desk="Equity",
-                portType="Discretionary",
-                currency="THB",
-                symbol="AOT",
-                srcSharecodes="AOT",
-                productDisplayName="Airports of Thailand",
-                productTypeDesc="Equity",
-                assetClass="Local Equity",
-                marketValue=2500000.0,
-                expectedReturn=0.06,
-                isRiskyAsset=True,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=500.0,
-                unitPriceThb=5000.0,
-                unitCostThb=4800.0,
-                volatility=0.13,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            Position(
-                productId="PROD007",
-                desk="Alternative",
-                portType="Discretionary",
-                currency="USD",
-                symbol="GOLD",
-                srcSharecodes="GOLD",
-                productDisplayName="Gold Fund",
-                productTypeDesc="Alternative",
-                assetClass="Alternative",
-                marketValue=2000000.0,
-                expectedReturn=0.12,
-                isRiskyAsset=True,
-                isCoverage=False,
-                isMonitored=True,
-                unitBal=2000.0,
-                unitPriceThb=1000.0,
-                unitCostThb=950.0,
-                volatility=0.18,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-            Position(
-                productId="PROD008",
-                desk="Private Market",
-                portType="Discretionary",
-                currency="THB",
-                symbol="PRIVATE1",
-                srcSharecodes="PRIVATE1",
-                productDisplayName="Private Equity Fund",
-                productTypeDesc="Private Market",
-                assetClass="Alternative",
-                marketValue=5000000.0,
-                expectedReturn=0.15,
-                isRiskyAsset=True,
-                isCoverage=False,
-                isMonitored=False,
-                unitBal=5000.0,
-                unitPriceThb=1000.0,
-                unitCostThb=900.0,
-                volatility=0.20,
-                esCorePort=False,
-                flagTopPick="",
-            ),
-        ]
+        Primary source is app/data/mock_positions_39597.json, which is
+        generated from the parquet file for customer_id=39597. If that
+        file is missing or invalid, an empty Portfolio is returned.
+        """
+
+        json_path = (
+            Path(__file__).parent.parent / "app" / "data" / "mock_positions_39597.json"
+        )
+
+        positions: list[Position] = []
+
+        if json_path.exists():
+            try:
+                raw = json.loads(json_path.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    for item in raw:
+                        try:
+                            positions.append(Position(**item))
+                        except Exception as e:  # pragma: no cover - profiling helper
+                            logger.warning(
+                                "[profile] skipping JSON mock position due to validation error: %s",
+                                e,
+                            )
+            except Exception as e:  # pragma: no cover - profiling helper
+                logger.warning(
+                    "[profile] failed to load mock positions JSON from %s: %s",
+                    json_path,
+                    e,
+                )
+
+        if not positions:
+            logger.warning(
+                "[profile] no JSON mock positions could be loaded; returning empty Portfolio"
+            )
 
         return Portfolio(positions=positions)
 
