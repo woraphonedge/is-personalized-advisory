@@ -67,6 +67,7 @@ lint.ignore = [
     "E501",
     "E402", # import not at top of file
     "B008", # function-call-in-default-argument
+    "F541", # f-string without any placeholders
 ]
 
 [tool.isort]
