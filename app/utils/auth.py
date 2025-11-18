@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 from typing import Optional
 
 import jwt
@@ -274,3 +275,20 @@ async def get_current_user(request: Request) -> tuple[str, str, str]:
     user_role = get_user_role_from_token(decoded_token)
 
     return user_id, sales_id, user_role
+
+
+async def get_system_or_current_user(request: Request) -> tuple[str, str, str]:
+    service_token = request.headers.get("X-Service-Token")
+    expected_token = os.getenv("INTERNAL_SERVICE_TOKEN")
+
+    if (
+        service_token
+        and expected_token
+        and secrets.compare_digest(service_token, expected_token)
+    ):
+        user_id = os.getenv("INTERNAL_SERVICE_USER_ID", "system_mcp")
+        sales_id = os.getenv("INTERNAL_SERVICE_SALES_ID", "84")
+        user_role = "system_admin"
+        return user_id, sales_id, user_role
+
+    return await get_current_user(request)

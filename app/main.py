@@ -21,7 +21,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 
-from app.utils.auth import get_current_user
+from app.utils.auth import get_current_user, get_system_or_current_user
 from app.utils.client_service import (
     get_accessible_customer_ids,
 )
@@ -131,7 +131,7 @@ async def list_clients(
 async def get_portfolio(
     customer_id: int,
     request: Request,
-    auth: tuple[str, str, str] = Depends(get_current_user),
+    auth: tuple[str, str, str] = Depends(get_system_or_current_user),
 ):
     """Return the current portfolio for the specified customer.
 
