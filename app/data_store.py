@@ -36,6 +36,7 @@ sales_customer_mapping_loaded: Optional[dict[str, str]] = None
 
 discretionary_acceptance = 0.4
 as_of_date = os.getenv("AS_OF_DATE", "2025-09-30")
+prod_comp_keys = ['product_id', 'src_sharecodes', 'desk', 'port_type', 'currency']
 
 # Repositories
 loader = DataLoader()
@@ -47,6 +48,8 @@ ports_ref_table = {
     "product_mapping": ports_repo.load_product_mapping(as_of_date=as_of_date),
     "product_underlying": ports_repo.load_product_underlying(),
 }
+ports_ref_table['product_mapping'].reset_index(inplace=True)
+ports_ref_table['product_mapping'].rename(columns={'index': 'sec_id'}, inplace=True)
 
 ppm_ref_dict = {
     "portprop_factsheet": ppm_repo.load_portprop_factsheet(),
@@ -72,6 +75,28 @@ try:
         "product_recommendation_rank_raw": rb_repo.load_product_recommendation_rank_raw(),
         "mandate_allocation": rb_repo.load_mandate_candidates(),
     }
+
+    # map sec_id to mandate
+    _rb_refs['mandate_allocation'] = _rb_refs['mandate_allocation'].merge(
+    ports_ref_table['product_mapping'][prod_comp_keys + ['sec_id']],
+    on=prod_comp_keys,
+    how='left',
+    validate='one_to_one'
+    )
+
+    # map sec_id to prod recom rank
+    mf_prod_mapping_rank = ports_ref_table["product_mapping"][
+        ports_ref_table["product_mapping"]["product_type_desc"] == "Mutual Fund"
+    ]
+    product_recommendation_rank_raw = _rb_refs["product_recommendation_rank_raw"][
+        ["src_sharecodes", "desk", "currency"] + ["is_ui", "rank_product"]
+    ]
+    _rb_refs["product_recommendation_rank_raw"] = product_recommendation_rank_raw.merge(
+        mf_prod_mapping_rank,
+        on=["src_sharecodes", "desk", "currency"],
+        how="left",
+        validate="one_to_one",
+    )
     rb.set_ref_tables(_rb_refs)
 except Exception as e:
     # Keep startup resilient; phases will skip with [TEMP-DEBUG] logs if missing
@@ -90,6 +115,13 @@ def prepare_portfolio_data() -> None:
         as_of_date=as_of_date,
         value_column="AUMX_THB",
     )
+    df_out_raw = df_out_raw.merge(
+        ports_ref_table['product_mapping'][prod_comp_keys + ['sec_id']],
+        on=prod_comp_keys,
+        how='left',
+        validate='many_to_one'
+    )
+
     df_style_raw = ports_repo.load_client_style(
         as_of_date=as_of_date,
         style_column="INVESTMENT_STYLE_AUMX",
@@ -193,6 +225,13 @@ async def lifespan(app):
         app.state.sales_customer_mapping = get_sales_customer_mapping()
         # Optionally prepare portfolio data if backend sources are reachable
         prepare_portfolio_data()
+        for name, df in [
+            ("ports_ref_table['product_mapping']", ports.product_mapping),
+            ("client_out_enriched", ports.df_out),
+            ("rb_ref_dict['product_recommendation_rank_raw']", rb.prod_reco_rank_raw),
+            ("rb_ref_dict['mandate_allocation']", rb.discretionary_allo_weight),
+            ]:
+            print(f"{name} has 'sec_id'? {'sec_id' in df.columns}")
     except Exception as e:
         # Defer failures to request time; not fatal for server startup
         print(f"[startup] Skipped prepare_portfolio_data due to error: {e}")

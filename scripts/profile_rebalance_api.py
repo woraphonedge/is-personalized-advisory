@@ -303,6 +303,13 @@ class MockAppState:
         self.hs = hs
         self.rb = rb
         self.sales_customer_mapping = get_sales_customer_mapping()
+        for name, df in [
+            ("ports_ref_table['product_mapping']", ports.product_mapping),
+            ("client_out_enriched", ports.df_out),
+            ("rb_ref_dict['product_recommendation_rank_raw']", rb.prod_reco_rank_raw),
+            ("rb_ref_dict['mandate_allocation']", rb.discretionary_allo_weight),
+            ]:
+            print(f"{name} has 'sec_id'? {'sec_id' in df.columns}")
 
 
 def profile_rebalance_function(customer_id: int | None = None):
