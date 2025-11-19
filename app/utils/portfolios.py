@@ -69,6 +69,10 @@ class Portfolios:
             port_ids = pd.Series([1], name='port_id')
             return df_out, df_style, port_ids, None
         else:
+            # Merge df_out and df_style on column_mapping, keep only intersected rows
+            df_out = df_out.merge(df_style[column_mapping].drop_duplicates(), on=column_mapping, how='inner')
+            df_style = df_style.merge(df_out[column_mapping].drop_duplicates(), on=column_mapping, how='inner')
+
             df_out['port_id'] = df_out.groupby(column_mapping).ngroup() + 1
             port_id_mapping = df_out[column_mapping + ['port_id']].drop_duplicates().reset_index(drop=True)
             df_style = port_id_mapping.merge(df_style, on=column_mapping, how='left').drop(column_mapping, axis=1)

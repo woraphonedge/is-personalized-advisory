@@ -152,6 +152,12 @@ class PortfoliosRepository:
             type_dict, query=query, cache_file=cache_file
         )
 
+        # Fill NaN values with "" for string columns
+        str_cols = list(styles.select_dtypes(include="string").columns)
+        str_cols.remove('port_investment_style')
+        styles[str_cols] = styles[str_cols].fillna("")
+
+
         return styles
 
     def load_product_mapping(self, as_of_date: str = "") -> pd.DataFrame:
