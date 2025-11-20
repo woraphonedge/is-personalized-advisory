@@ -170,8 +170,7 @@ def list_clients(
             found_acct = acct_cust_mapping[acct_cust_mask]
 
             acct_mask = (
-                df_merged["customer_id"].astype(str)
-                .isin(found_acct['customer_id'])
+                df_merged["customer_id"].astype(str).isin(found_acct["customer_id"])
             )
 
             search_mask = search_mask | acct_mask
@@ -233,23 +232,36 @@ def list_clients(
     # Limit to 10 results
     df_result = df_unique.head(10)
 
-    # Build response with all new fields
-    clients: List[ClientListItem] = []
-    for _, row in df_result.iterrows():
-        client_item = ClientListItem(
-            customer_id=int(row["customer_id"]),
-            client_full_name_th=row.get("client_full_name_th"),
-            client_first_name_en=row.get("client_first_name_en"),
-            port_investment_style=row.get("port_investment_style"),
-            client_tier=row.get("client_tier"),
-            business_unit=row.get("business_unit"),
-            client_segment_by_inv_aum=row.get("client_segment_by_inv_aum"),
-            client_sub_segment_by_inv_aum=row.get("client_sub_segment_by_inv_aum"),
-            sales_id=row.get("sales_id"),
-            ui_client=row.get("ui_client"),
-            sales_first_name_en=row.get("sales_first_name_en"),
-            sales_team=row.get("sales_team"),
+    # Helper to normalize DataFrame values to Optional[str]
+    def _to_optional_str(value):
+        if pd.isna(value):
+            return None
+        # Ensure non-string values (e.g. ints) are converted to strings for Pydantic
+        return str(value) if not isinstance(value, str) else value
+
+    # Convert to list of dicts and build response with all new fields
+    records = df_result.to_dict(orient="records")
+
+    clients: List[ClientListItem] = [
+        ClientListItem(
+            customer_id=int(r["customer_id"]),
+            client_full_name_th=_to_optional_str(r.get("client_full_name_th")),
+            client_first_name_en=_to_optional_str(r.get("client_first_name_en")),
+            port_investment_style=_to_optional_str(r.get("port_investment_style")),
+            client_tier=_to_optional_str(r.get("client_tier")),
+            business_unit=_to_optional_str(r.get("business_unit")),
+            client_segment_by_inv_aum=_to_optional_str(
+                r.get("client_segment_by_inv_aum")
+            ),
+            client_sub_segment_by_inv_aum=_to_optional_str(
+                r.get("client_sub_segment_by_inv_aum")
+            ),
+            sales_id=_to_optional_str(r.get("sales_id")),
+            ui_client=_to_optional_str(r.get("ui_client")),
+            sales_first_name_en=_to_optional_str(r.get("sales_first_name_en")),
+            sales_team=_to_optional_str(r.get("sales_team")),
         )
-        clients.append(client_item)
+        for r in records
+    ]
 
     return ClientListResponse(clients=clients, total=len(clients))
