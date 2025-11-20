@@ -487,7 +487,6 @@ def _compute_health_metrics(
                     "Local Equity": float(arow["aa_le"]) if arow is not None else 0.0,
                     "Global Equity": float(arow["aa_ge"]) if arow is not None else 0.0,
                     "Alternative": float(arow["aa_alt"]) if arow is not None else 0.0,
-                    "Allocation": 0.0,
                 }
             except Exception:
                 asset_allocation = {}
@@ -518,7 +517,6 @@ def _compute_health_metrics(
                     "Alternative": (
                         float(mrow["aa_alt_model"]) if mrow is not None else 0.0
                     ),
-                    "Allocation": 0.0,
                 }
             except Exception as e:
                 logger.error(
