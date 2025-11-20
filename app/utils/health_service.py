@@ -106,7 +106,6 @@ def get_health_metrics_for_customer(ports, ppm, hs, customer_id: int) -> HealthM
                 "Local Equity": float(arow["aa_le"]) if arow is not None else 0.0,
                 "Global Equity": float(arow["aa_ge"]) if arow is not None else 0.0,
                 "Alternative": float(arow["aa_alt"]) if arow is not None else 0.0,
-                "Allocation": 0.0,
             }
         except Exception:
             asset_allocation = {}
@@ -138,7 +137,6 @@ def get_health_metrics_for_customer(ports, ppm, hs, customer_id: int) -> HealthM
                 "Local Equity": float(mrow["aa_le_model"]),
                 "Global Equity": float(mrow["aa_ge_model"]),
                 "Alternative": float(mrow["aa_alt_model"]),
-                "Allocation": 0.0,
             }
         except Exception as e:
             import logging
