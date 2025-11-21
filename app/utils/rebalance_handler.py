@@ -385,6 +385,7 @@ def _compute_health_metrics(
                         r.get("flag_msg"), None
                     ),  # Human-readable description
                     symbol=safe_str(r.get("src_sharecodes"), "UNKNOWN"),
+                    product_display_name=safe_str(r.get("product_display_name"), "UNKNOWN"),
                     amount=safe_float(r.get("amount")),  # Transaction amount
                     asset_class_name=safe_str(
                         r.get("asset_class_name"), None
