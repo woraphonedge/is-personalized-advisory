@@ -52,4 +52,4 @@ USER appuser
 EXPOSE 8100
 
 # Command to run the application with gunicorn + 4 workers for CPU-bound rebalance
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8100", "--timeout", "60"]
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8100", "--timeout", "60", "--access-logfile", "-", "--access-logformat", "%(h)s %(r)s %(s)s %(L)ss"]
