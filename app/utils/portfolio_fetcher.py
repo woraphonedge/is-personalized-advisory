@@ -105,6 +105,7 @@ def get_portfolio_for_customer(ports, customer_id: int):
                 currency=r.get("currency"),
                 symbol=r.get("symbol") or r.get("src_sharecodes"),
                 srcSharecodes=r.get("src_sharecodes"),
+                productDisplayName=r.get("product_display_name"),
                 productTypeDesc=r.get("product_type_desc"),
                 assetClass=r.get("asset_class_name"),
                 assetSubClass=r.get("pp_asset_sub_class"),

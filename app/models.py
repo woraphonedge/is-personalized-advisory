@@ -253,7 +253,8 @@ class ActionLog(BaseModel):
         None  # new_money, not_monitored_product, cash_proxy_funding, etc.
     )
     flag_msg: Optional[str] = None  # Human-readable description
-    symbol: Optional[str] = None
+    symbol: str
+    product_display_name: str
     amount: Optional[float] = None  # Transaction amount in THB
     asset_class_name: Optional[str] = None  # Asset class name
     # Legacy fields for backward compatibility
