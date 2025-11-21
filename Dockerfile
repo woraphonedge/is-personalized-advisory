@@ -1,5 +1,5 @@
 # Use a distro-specific tag for stability and security updates
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 # Install uv globally
 RUN pip install uv
@@ -19,14 +19,14 @@ RUN python -m venv $VIRTUAL_ENV
 # Add the virtual environment to the PATH
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Copy only dependency definition first for better caching
-COPY pyproject.toml ./
+# Copy only dependency definitions first for better caching
+COPY pyproject.toml README.md ./
 
-# Copy the application code
-COPY . .
-
-# Install the project and its dependencies
+# Install the project and its dependencies (cached until deps change)
 RUN uv pip install .
+
+# Copy only the application code required at runtime
+COPY app ./app
 
 # Verify installed packages
 RUN uv pip list
