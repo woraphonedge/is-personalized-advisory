@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 
 from .portfolios import Portfolios
-import time
 
 
 class Rebalancer:
@@ -719,9 +718,11 @@ class Rebalancer:
                         chosen = pd.DataFrame(
                             [
                                 {
-                                    "port_id": ports.port_ids.iloc[0]
-                                    if hasattr(ports.port_ids, "iloc")
-                                    else ports.port_ids[0],
+                                    "port_id": (
+                                        ports.port_ids.iloc[0]
+                                        if hasattr(ports.port_ids, "iloc")
+                                        else ports.port_ids[0]
+                                    ),
                                     "product_id": chosen_md["product_id"],
                                     "sec_id": chosen_md["sec_id"],
                                     "src_sharecodes": chosen_md["src_sharecodes"],
@@ -964,11 +965,18 @@ class Rebalancer:
         total_value = float(ports.df_out["value"].sum())
         if w_cash_now <= self.eps_tiny:
             return pd.DataFrame(columns=self.reco_cols)
-
+        cash_key_cols = ports.prod_comp_keys + [
+            "product_id",
+            "src_sharecodes",
+            "desk",
+            "port_type",
+        ]
+        # Deduplicate while preserving order
+        cash_key_cols = list(dict.fromkeys(cash_key_cols))
         cash_map = ports.product_mapping[
             ports.product_mapping["symbol"] == "CASH PROXY"
         ][
-            ports.prod_comp_keys
+            cash_key_cols
             + [
                 "currency",
                 "product_display_name",
@@ -1007,9 +1015,11 @@ class Rebalancer:
                         "value": r.get("value", np.nan),
                         "weight": r.get("weight", np.nan),
                         "flag": "cash_overweight",
-                        "expected_weight": (r.get("weight", np.nan) - move_w)
-                        if pd.notna(r.get("weight", np.nan))
-                        else np.nan,
+                        "expected_weight": (
+                            (r.get("weight", np.nan) - move_w)
+                            if pd.notna(r.get("weight", np.nan))
+                            else np.nan
+                        ),
                         "action": "sell",
                         "amount": amt_sell,
                     }
@@ -1082,9 +1092,11 @@ class Rebalancer:
                 {
                     "transaction_no": self.txn_seq + 1,
                     "batch_no": self.batch_seq + 1,
-                    "port_id": ports.port_ids.iloc[0]
-                    if hasattr(ports.port_ids, "iloc")
-                    else ports.port_ids[0],
+                    "port_id": (
+                        ports.port_ids.iloc[0]
+                        if hasattr(ports.port_ids, "iloc")
+                        else ports.port_ids[0]
+                    ),
                     "product_id": proxy["product_id"],
                     "sec_id": proxy["sec_id"],
                     "src_sharecodes": proxy["src_sharecodes"],

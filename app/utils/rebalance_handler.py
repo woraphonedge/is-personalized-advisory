@@ -124,8 +124,9 @@ def _enrich_portfolio_data(
         "desk",
         "port_type",
         "currency",
+        "sec_id",
     ]
-    enriched_cols = ["asset_class_name", "product_type_desc", "symbol"]
+    enriched_cols = ["asset_class_name", "product_type_desc", "symbol", "sec_id"]
 
     # Check if data is already enriched (from portfolio_fetcher)
     is_already_enriched = all(
@@ -183,14 +184,12 @@ def _enrich_portfolio_data(
 
     # Try exact match with src_sharecodes + product_id + currency
     use_keys = ["src_sharecodes", "product_id", "currency"]
-    merged = df_portfolio.merge(pm_sub, on=use_keys, how="left", suffixes=("", "_pm"))
+    merged = df_portfolio.merge(
+        pm_sub, on=use_keys, how="left", suffixes=("", "_pm"), indicator=True
+    )
 
     # Validate all positions were successfully mapped
-    still_missing = (
-        merged[[f"{c}_pm" for c in required_cols if f"{c}_pm" in merged.columns]]
-        .isna()
-        .all(axis=1)
-    )
+    still_missing = merged["_merge"] == "left_only"
     if still_missing.any():
         missing_count = still_missing.sum()
         missing_rows = df_portfolio.loc[
@@ -203,15 +202,17 @@ def _enrich_portfolio_data(
             f"Unmapped products: {missing_rows.to_dict('records')}"
         )
 
+    merged.drop(columns="_merge", inplace=True)
+
     # Apply mapped values to main columns
     for c in required_cols:
-        src_col = c if c in merged.columns else f"{c}_pm"
-        if src_col in merged.columns:
-            merged[c] = (
-                merged[c].fillna(merged[src_col])
-                if c in merged.columns
-                else merged[src_col]
-            )
+        pm_col = f"{c}_pm"
+        if pm_col in merged.columns:
+            if c in merged.columns:
+                merged[c] = merged[c].fillna(merged[pm_col])
+            else:
+                merged[c] = merged[pm_col]
+            merged.drop(columns=pm_col, inplace=True)
 
     for c in [
         "symbol",
@@ -219,13 +220,13 @@ def _enrich_portfolio_data(
         "product_type_desc",
         "asset_class_name",
     ]:
-        src_col = c if c in merged.columns else f"{c}_pm"
-        if src_col in merged.columns:
-            merged[c] = (
-                merged[c].fillna(merged[src_col])
-                if c in merged.columns
-                else merged[src_col]
-            )
+        pm_col = f"{c}_pm"
+        if pm_col in merged.columns:
+            if c in merged.columns:
+                merged[c] = merged[c].fillna(merged[pm_col])
+            else:
+                merged[c] = merged[pm_col]
+            merged.drop(columns=pm_col, inplace=True)
 
     df_out = merged[
         df_portfolio.columns.union(
@@ -385,7 +386,9 @@ def _compute_health_metrics(
                         r.get("flag_msg"), None
                     ),  # Human-readable description
                     symbol=safe_str(r.get("src_sharecodes"), "UNKNOWN"),
-                    product_display_name=safe_str(r.get("product_display_name"), "UNKNOWN"),
+                    product_display_name=safe_str(
+                        r.get("product_display_name"), "UNKNOWN"
+                    ),
                     amount=safe_float(r.get("amount")),  # Transaction amount
                     asset_class_name=safe_str(
                         r.get("asset_class_name"), None
