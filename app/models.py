@@ -23,6 +23,7 @@ class Position(BaseModel):
     port_type: str = Field(default=None, alias="portType")
     src_symbol: str = Field(alias="symbol")
     src_sharecodes: str = Field(default=None, alias="srcSharecodes")
+    sec_id: int = Field(description="", alias="secId")
     asset_class: str = Field(
         alias="assetClass",
         description="(Cash, Fixed Income, Global Equity, Local Equity, Alternative, Asset Allocation)",

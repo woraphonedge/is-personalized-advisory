@@ -182,8 +182,10 @@ def _enrich_portfolio_data(
     )
     pm_sub = product_mapping[cols_map].copy()
 
-    # Try exact match with src_sharecodes + product_id + currency
-    use_keys = ["src_sharecodes", "product_id", "currency"]
+    # Try exact match with sec_id
+    use_keys = ["sec_id"]
+    df_portfolio["sec_id"] = df_portfolio["sec_id"].astype(int)
+
     merged = df_portfolio.merge(
         pm_sub, on=use_keys, how="left", suffixes=("", "_pm"), indicator=True
     )
@@ -424,6 +426,7 @@ def _compute_health_metrics(
 
             positions.append(
                 Position(
+                    secId=r.get("sec_id"),
                     productId=safe_str(r.get("product_id")),
                     desk=safe_str(r.get("desk")),
                     portType=safe_str(r.get("port_type")),

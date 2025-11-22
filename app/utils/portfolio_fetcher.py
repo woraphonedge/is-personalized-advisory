@@ -99,6 +99,7 @@ def get_portfolio_for_customer(ports, customer_id: int):
 
         positions.append(
             Position(
+                secId=r.get("sec_id"),
                 productId=r.get("product_id"),
                 desk=r.get("desk"),
                 portType=r.get("port_type"),
