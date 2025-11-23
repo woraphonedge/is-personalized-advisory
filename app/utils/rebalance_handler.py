@@ -184,7 +184,8 @@ def _enrich_portfolio_data(
 
     # Try exact match with sec_id
     use_keys = ["sec_id"]
-    df_portfolio["sec_id"] = df_portfolio["sec_id"].astype(int)
+    df_portfolio["sec_id"] = pd.to_numeric(df_portfolio["sec_id"], errors="coerce").astype("Int64")
+    pm_sub["sec_id"] = pd.to_numeric(pm_sub["sec_id"], errors="coerce").astype("Int64")
 
     merged = df_portfolio.merge(
         pm_sub, on=use_keys, how="left", suffixes=("", "_pm"), indicator=True
